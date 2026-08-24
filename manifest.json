@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "halmylyseas.ristretto",
+  "name": "Ristretto",
+  "version": "0.1.0",
+  "author": "HalmyLyseas",
+  "license": "MIT",
+  "description": "Screensaver, lock, and sleep-after-idle-lock timing control.",
+  "kinds": ["service", "bar-widget"],
+  "keepLoaded": true,
+  "entryPoints": {
+    "service": "Service.qml",
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Ristretto",
+    "description": "Screensaver, lock, and sleep delays",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}
