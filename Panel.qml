@@ -5,9 +5,10 @@ import qs.Commons
 import qs.Ui
 import "Model.js" as Model
 
-// P2: the two delay sliders write through to shell.json on release, holding
-// LOCK strictly above SCREENSAVER in both directions. The switches and the
-// sleep row are still read-only -- those are P3 and P4.
+// P3: the delay sliders write to shell.json, and both switches drive the
+// native state they mirror -- stay-awake through omarchy.idle, the screensaver
+// through the toggle flag that has no other UI anywhere in Omarchy. The sleep
+// row is still read-only; arming it is P4.
 Panel {
   id: root
 
@@ -43,6 +44,10 @@ Panel {
   readonly property var idleService: bar && bar.shell ? bar.shell.firstPartyServiceFor("omarchy.idle") : null
   readonly property bool stayAwake: idleService ? idleService.stayAwake === true : false
 
+  // Ristretto owns timing; `omarchy toggle screensaver` owns on/off. Reading
+  // the flag as "enabled" keeps the switch's sense the same as the label.
+  readonly property bool screensaverEnabled: !screensaverOff
+
   // The screensaver flag has no QML reader anywhere in Omarchy, so probe the
   // flag file the way omarchy.idle probes its own: a process for the answer,
   // a directory watch to know when to re-ask.
@@ -70,6 +75,32 @@ Panel {
   function commitLock(sliderValue) {
     var pair = Model.pairFromLock(Math.round(sliderValue), root.screensaverIndex)
     writeDelays(pair.screensaver, pair.lock)
+  }
+
+  // The service owns the flag file and its persistence, so hand the decision
+  // over rather than touching ~/.local/state directly. setIdleEnabled(true)
+  // means "allow idle", i.e. stay-awake off -- so passing the *current*
+  // stayAwake value flips it. Same call the first-party StayAwake indicator
+  // makes, which is why the two controls can never disagree.
+  function toggleStayAwake() {
+    if (idleService && typeof idleService.setIdleEnabled === "function")
+      idleService.setIdleEnabled(root.stayAwake)
+  }
+
+  // Use the explicit on/off action, never the bare flip: a panel that already
+  // shows the state must not depend on what the state happened to be. This is
+  // also why `omarchy-toggle` is called rather than `omarchy toggle
+  // screensaver`, whose wrapper fires a desktop notification that would be
+  // redundant next to a visible switch.
+  function setScreensaverEnabled(enabled) {
+    root.screensaverOff = !enabled
+    screensaverWriter.command = ["omarchy-toggle", "screensaver-off", enabled ? "off" : "on"]
+    screensaverWriter.running = true
+  }
+
+  Process {
+    id: screensaverWriter
+    onExited: root.refreshScreensaverFlag()
   }
 
   function refreshScreensaverFlag() {
@@ -148,6 +179,7 @@ Panel {
               anchors.verticalCenter: parent.verticalCenter
               checked: root.stayAwake
               foreground: root.foreground
+              onToggled: root.toggleStayAwake()
             }
           }
         }
@@ -179,8 +211,9 @@ Panel {
             anchors.left: screensaverHeader.right
             anchors.leftMargin: Style.space(12)
             anchors.verticalCenter: parent.verticalCenter
-            checked: !root.screensaverOff
+            checked: root.screensaverEnabled
             foreground: root.foreground
+            onToggled: root.setScreensaverEnabled(!root.screensaverEnabled)
           }
 
           Text {
