@@ -5,10 +5,9 @@ import qs.Commons
 import qs.Ui
 import "Model.js" as Model
 
-// P1: the panel renders the real UI from live state and writes NOTHING.
-// Sliders show the current delays, the switches mirror the native flags, and
-// the sleep row shows the stored choice. Every control is inert -- wiring the
-// writes is P2/P3.
+// P2: the two delay sliders write through to shell.json on release, holding
+// LOCK strictly above SCREENSAVER in both directions. The switches and the
+// sleep row are still read-only -- those are P3 and P4.
 Panel {
   id: root
 
@@ -48,6 +47,30 @@ Panel {
   // flag file the way omarchy.idle probes its own: a process for the answer,
   // a directory watch to know when to re-ask.
   property bool screensaverOff: false
+
+  // Persist both delays together. Either slider can move the other via the
+  // clamp, so writing the pair keeps shell.json internally consistent in one
+  // mutation instead of two that briefly disagree. omarchy.idle binds its
+  // timeouts reactively, so this re-arms the cycle with no restart.
+  function writeDelays(screensaverMinutes, lockMinutes) {
+    var host = root.shell
+    if (!host || typeof host.mutateShellConfig !== "function") return
+    host.mutateShellConfig(function(config) {
+      if (!config.idle || typeof config.idle !== "object") config.idle = ({})
+      config.idle.screensaver = Math.round(screensaverMinutes * 60)
+      config.idle.lock = Math.round(lockMinutes * 60)
+    })
+  }
+
+  function commitScreensaver(sliderValue) {
+    var pair = Model.pairFromScreensaver(Math.round(sliderValue), root.lockIndex)
+    writeDelays(pair.screensaver, pair.lock)
+  }
+
+  function commitLock(sliderValue) {
+    var pair = Model.pairFromLock(Math.round(sliderValue), root.screensaverIndex)
+    writeDelays(pair.screensaver, pair.lock)
+  }
 
   function refreshScreensaverFlag() {
     if (!screensaverFlagProbe.running) screensaverFlagProbe.running = true
@@ -161,7 +184,8 @@ Panel {
           }
 
           Text {
-            text: Model.minutesLabel(Model.SCREENSAVER_STOPS[root.screensaverIndex])
+            text: Model.minutesLabel(Model.SCREENSAVER_STOPS[
+              screensaverSlider.dragging ? Math.round(screensaverSlider.liveValue) : root.screensaverIndex])
             color: root.dim
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
@@ -189,6 +213,7 @@ Panel {
             integer: true
             tickCount: Model.SCREENSAVER_STOPS.length
             value: root.screensaverIndex
+            onReleased: function(v) { root.commitScreensaver(v) }
           }
         }
       }
@@ -214,7 +239,8 @@ Panel {
 
           Text {
             id: lockValue
-            text: Model.minutesLabel(Model.LOCK_STOPS[root.lockIndex])
+            text: Model.minutesLabel(Model.LOCK_STOPS[
+              lockSlider.dragging ? Math.round(lockSlider.liveValue) : root.lockIndex])
             color: root.dim
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
@@ -241,6 +267,7 @@ Panel {
             integer: true
             tickCount: Model.LOCK_STOPS.length
             value: root.lockIndex
+            onReleased: function(v) { root.commitLock(v) }
           }
         }
       }

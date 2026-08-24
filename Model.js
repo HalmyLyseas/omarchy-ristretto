@@ -40,3 +40,46 @@ function minutesLabel(minutes) {
 function sleepLabel(seconds) {
   return seconds === SLEEP_NEVER ? "∞" : seconds + "s"
 }
+
+// --------------------------------------------------------------- the clamp
+//
+// LOCK must sit STRICTLY above SCREENSAVER. Equal values are not merely
+// redundant, they are broken: omarchy.idle derives both stage delays from
+// min(screensaver, lock), so equal values make both 0 and startIdleCycle
+// launches the screensaver and fires the lock in the same pass. The
+// screensaver's "skip if already locked" guard is a subprocess that runs
+// before the lock has even been requested, so it passes and the screensaver
+// flashes up underneath the lock.
+//
+// Both directions always land on a real stop, which is why the two scales are
+// asymmetric: SCREENSAVER's maximum (15) is below LOCK's maximum (30), so
+// there is always a lock above; LOCK's minimum (2) is above SCREENSAVER's
+// minimum (1), so there is always a screensaver below.
+
+function lockIndexAbove(screensaverMinutes, currentLockIndex) {
+  if (LOCK_STOPS[currentLockIndex] > screensaverMinutes) return currentLockIndex
+  for (var i = 0; i < LOCK_STOPS.length; i++) {
+    if (LOCK_STOPS[i] > screensaverMinutes) return i
+  }
+  return LOCK_STOPS.length - 1
+}
+
+function screensaverIndexBelow(lockMinutes, currentScreensaverIndex) {
+  if (SCREENSAVER_STOPS[currentScreensaverIndex] < lockMinutes) return currentScreensaverIndex
+  for (var i = SCREENSAVER_STOPS.length - 1; i >= 0; i--) {
+    if (SCREENSAVER_STOPS[i] < lockMinutes) return i
+  }
+  return 0
+}
+
+// The pair that should be persisted when one slider moves. Returns minutes,
+// not indices: the caller converts to the seconds omarchy.idle stores.
+function pairFromScreensaver(screensaverIndex, currentLockIndex) {
+  var ss = SCREENSAVER_STOPS[screensaverIndex]
+  return { screensaver: ss, lock: LOCK_STOPS[lockIndexAbove(ss, currentLockIndex)] }
+}
+
+function pairFromLock(lockIndex, currentScreensaverIndex) {
+  var lk = LOCK_STOPS[lockIndex]
+  return { screensaver: SCREENSAVER_STOPS[screensaverIndexBelow(lk, currentScreensaverIndex)], lock: lk }
+}
