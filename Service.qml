@@ -112,7 +112,11 @@ Item {
 
   // Config is reactive, so these confirm what the service is actually acting
   // on rather than what it read once at startup.
-  onSleepSecondsChanged: log("sleep delay is now " + (armable ? sleepSeconds + "s" : "never"))
+  // Derive from sleepSeconds directly rather than reading `armable`: a
+  // property derived from the one that changed has not necessarily
+  // re-evaluated yet when its change handler runs, so `armable` here can still
+  // hold the previous value and print "-1s" instead of "never".
+  onSleepSecondsChanged: log("sleep delay is now " + (sleepSeconds > 0 ? sleepSeconds + "s" : "never"))
   onDryRunChanged: log("dry run is now " + dryRun)
 
   Component.onCompleted: log("service ready (sleep=" + sleepSeconds + "s dryRun=" + dryRun + ")")
