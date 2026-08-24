@@ -1,0 +1,11 @@
+# Staging/communication layer -- scoping documents, mockups, icon sources.
+# Not part of the plugin. This repository doubles as the installed plugin
+# folder (omarchy plugin add clones straight into
+# ~/.config/omarchy/plugins/<id>/), so everything tracked here is copied onto
+# every user's machine. Design notes and editable art stay local.
+/exchange/
+
+# editor / OS scratch
+*~
+*.swp
+.DS_Store
