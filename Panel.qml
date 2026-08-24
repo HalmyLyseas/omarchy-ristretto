@@ -5,10 +5,9 @@ import qs.Commons
 import qs.Ui
 import "Model.js" as Model
 
-// P3: the delay sliders write to shell.json, and both switches drive the
-// native state they mirror -- stay-awake through omarchy.idle, the screensaver
-// through the toggle flag that has no other UI anywhere in Omarchy. The sleep
-// row is still read-only; arming it is P4.
+// P4: every control is live. The delay sliders write shell.json's idle keys,
+// both switches drive the native state they mirror, and the sleep row stores
+// the delay the service arms on an idle lock.
 Panel {
   id: root
 
@@ -101,6 +100,17 @@ Panel {
   Process {
     id: screensaverWriter
     onExited: root.refreshScreensaverFlag()
+  }
+
+  // updateEntryInline replaces the entry with { id } plus what it is handed,
+  // so merge onto the current settings or every sibling key is dropped --
+  // including dryRun, which is the guard standing between a bug and the
+  // machine actually suspending.
+  function commitSleep(seconds) {
+    var host = root.shell
+    if (!host || typeof host.updateEntryInline !== "function") return
+    host.updateEntryInline(root.moduleName,
+                           Model.mergedSettings(root.settings, "sleepAfterIdleLock", seconds))
   }
 
   function refreshScreensaverFlag() {
@@ -342,6 +352,7 @@ Panel {
               verticalPadding: Style.spacing.controlPaddingY
               bordered: true
               active: root.sleepIndex === index
+              onClicked: root.commitSleep(modelData)
             }
           }
         }

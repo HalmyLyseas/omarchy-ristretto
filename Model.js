@@ -83,3 +83,41 @@ function pairFromLock(lockIndex, currentScreensaverIndex) {
   var lk = LOCK_STOPS[lockIndex]
   return { screensaver: SCREENSAVER_STOPS[screensaverIndexBelow(lk, currentScreensaverIndex)], lock: lk }
 }
+
+// ------------------------------------------------------- own settings entry
+//
+// The shell injects `settings` into widgets and panels, but a service gets
+// only `shell`, so it has to find its own entry in shellConfig. The entry
+// lives in the bar layout for a bar-widget plugin and in plugins[] otherwise.
+
+function entryFor(config, id) {
+  if (!config) return null
+  var layout = config.bar && config.bar.layout ? config.bar.layout : null
+  var sections = ["left", "center", "right"]
+  if (layout) {
+    for (var s = 0; s < sections.length; s++) {
+      var arr = layout[sections[s]] || []
+      for (var i = 0; i < arr.length; i++) if (arr[i] && arr[i].id === id) return arr[i]
+    }
+  }
+  var plugins = config.plugins || []
+  for (var j = 0; j < plugins.length; j++) if (plugins[j] && plugins[j].id === id) return plugins[j]
+  return null
+}
+
+function settingFromConfig(config, id, key, fallback) {
+  var entry = entryFor(config, id)
+  if (!entry) return fallback
+  var value = entry[key]
+  return value === undefined || value === null ? fallback : value
+}
+
+// updateEntryInline REPLACES the entry with { id } plus whatever it is given,
+// so a caller that passes one key silently drops every other setting. Always
+// merge onto the current settings first.
+function mergedSettings(current, key, value) {
+  var next = ({})
+  for (var k in current) if (k !== "id") next[k] = current[k]
+  next[key] = value
+  return next
+}
