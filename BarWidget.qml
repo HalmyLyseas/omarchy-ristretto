@@ -56,6 +56,12 @@ BarWidget {
     // foreground; this glyph only stands in until then.
     text: ""
     slotSize: Style.bar.statusSlot
+    // Font Awesome glyphs fill more of the em box than the Material Design
+    // ones every neighbouring widget uses: measured on the live bar, this cup
+    // paints 15px wide at the default Style.bar.iconFont (13) while the widest
+    // neighbour is 13px. Caption drops it into the row. BarIndicator sizes its
+    // own glyphs the same way. Revisit when the mark becomes a Shape.
+    fontSize: Style.font.caption
     tooltipText: "Ristretto — screensaver, lock, and sleep delays"
     onPressed: function(b) { root.toggle() }
   }
