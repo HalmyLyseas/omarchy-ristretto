@@ -43,6 +43,11 @@ Item {
   // lastEvent works: lockSystem() is called from exactly two places, both
   // idle timers, and both log "lock-system: ...". Nothing else in the service
   // ever emits it, so a manual Super+Escape cannot set this.
+  //
+  // A lock-system event that lands while the session is ALREADY manually
+  // locked sets the latch but never arms, because locked has no rising edge
+  // left to fire on. That is intended, not incidental: the session was locked
+  // by the user's own hand, and a deliberate lock never leads to suspend.
   property bool idleLockPending: false
 
   onIdleEventChanged: {
