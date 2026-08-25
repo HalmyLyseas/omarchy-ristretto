@@ -11,6 +11,12 @@ BarWidget {
   readonly property bool opened: panelLoader.item ? panelLoader.item.opened === true : false
   readonly property bool popoutSwitchClosing: panelLoader.item ? panelLoader.item.popoutSwitchClosing === true : false
 
+  // Stay awake is owned by omarchy.idle; bind, never cache. The cup steams
+  // only while stay-awake keeps it hot, so the bar shows the state at a
+  // glance without a separate indicator.
+  readonly property var idleService: bar && bar.shell ? bar.shell.firstPartyServiceFor("omarchy.idle") : null
+  readonly property bool stayAwake: idleService ? idleService.stayAwake === true : false
+
   // The panel is loaded standalone, so the host has to hand it everything it
   // cannot reach on its own: the bar, this widget's settings, and the button
   // to anchor against.
@@ -58,6 +64,7 @@ BarWidget {
     iconComponent: Component {
       RistrettoIcon {
         color: button.active && button.useActiveColor ? button.activeColor : button.foreground
+        steam: root.stayAwake
       }
     }
     tooltipText: "Ristretto — screensaver, lock, and sleep delays"

@@ -27,7 +27,8 @@ never leads to suspend.
   a CLI (`omarchy toggle screensaver`) but no other UI.
 - **Stay awake switch** — the native `omarchy.idle` stay-awake state as a
   labelled control. While it is on, no idle cycle runs: no screensaver, no
-  lock, no sleep.
+  lock, no sleep — and the cup in the bar steams, so the state is readable
+  at a glance without opening the panel.
 
 Everything reads and writes Omarchy's own config and services, so changes
 take effect immediately, survive a shell restart and `omarchy update`, and

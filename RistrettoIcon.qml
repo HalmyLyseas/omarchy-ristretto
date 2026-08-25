@@ -13,6 +13,10 @@ Item {
   property real iconSize: Style.font.icon
   property color color: Color.foreground
 
+  // The steam is a state, not decoration: the bar shows it only while
+  // stay-awake keeps the coffee hot. The panel hero leaves it on.
+  property bool steam: true
+
   width: iconSize
   height: iconSize
   implicitWidth: iconSize
@@ -27,9 +31,13 @@ Item {
     layer.enabled: true
     layer.samples: 4
 
+    // With the steam hidden the ink would hug the bottom of the box, so the
+    // steamless cup is lifted to sit centred where a bar glyph is expected.
+    transform: Translate { y: root.steam ? 0 : -3.5 * root.u }
+
     // Steam, left curl.
     ShapePath {
-      strokeColor: root.color
+      strokeColor: root.steam ? root.color : "transparent"
       strokeWidth: 1.7 * root.u
       capStyle: ShapePath.RoundCap
       fillColor: "transparent"
@@ -49,7 +57,7 @@ Item {
 
     // Steam, right curl -- shorter, offset, the "intense" half of the mark.
     ShapePath {
-      strokeColor: root.color
+      strokeColor: root.steam ? root.color : "transparent"
       strokeWidth: 1.7 * root.u
       capStyle: ShapePath.RoundCap
       fillColor: "transparent"
