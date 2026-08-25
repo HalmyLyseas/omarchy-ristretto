@@ -34,6 +34,19 @@ Everything reads and writes Omarchy's own config and services, so changes
 take effect immediately, survive a shell restart and `omarchy update`, and
 stay in sync with their CLI equivalents in both directions.
 
+## Requirements
+
+Everything Ristretto needs ships with Omarchy itself — there are no
+third-party dependencies.
+
+- **Omarchy 4.0 or later.** The plugin binds the first-party `omarchy.idle`
+  and `omarchy.lock` shell services and builds its UI from the shell's own
+  component kit, all measured against 4.0.0. If either service is disabled,
+  Ristretto degrades gracefully: the panel still renders and the suspend
+  timer simply never arms.
+- **systemd-logind** for the suspend itself — `systemctl suspend` from the
+  active session, no root and no polkit prompt.
+
 ## Install
 
 ```bash
