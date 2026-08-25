@@ -1,0 +1,101 @@
+# Ristretto
+
+An [Omarchy](https://omarchy.org) shell plugin that gives you direct control
+over power-saver behaviour, from the bar: **when the screensaver starts, when
+the session locks, and when the machine suspends.**
+
+![The Ristretto panel](preview.png)
+
+Omarchy has no suspend-on-idle of any kind — under a Wayland compositor,
+logind's `IdleAction` never fires because nothing publishes idle state to it.
+Ristretto adds it at the only workable layer, the shell: a delay that starts
+counting when the session locks *because you went idle*, and suspends the
+machine when it runs out. A lock you asked for yourself (`Super+Escape`)
+never leads to suspend.
+
+## What it does
+
+- **Screensaver delay** — how long after going idle the screensaver appears:
+  1, 2, 3, 5, 10 or 15 minutes.
+- **Lockscreen delay** — how long after going idle the session locks:
+  2, 3, 5, 10, 15 or 30 minutes. Always strictly above the screensaver delay;
+  moving either slider nudges the other when they would collide.
+- **Sleep after idle lock** — how long after an idle-driven lock the machine
+  suspends: 30, 60, 90, 120 or 150 seconds, or ∞ for never. Unlocking during
+  the countdown cancels it.
+- **Screensaver switch** — Omarchy's native `screensaver-off` flag, which has
+  a CLI (`omarchy toggle screensaver`) but no other UI.
+- **Stay awake switch** — the native `omarchy.idle` stay-awake state as a
+  labelled control. While it is on, no idle cycle runs: no screensaver, no
+  lock, no sleep.
+
+Everything reads and writes Omarchy's own config and services, so changes
+take effect immediately, survive a shell restart and `omarchy update`, and
+stay in sync with their CLI equivalents in both directions.
+
+## Install
+
+```bash
+omarchy plugin add https://github.com/HalmyLyseas/omarchy-ristretto --enable
+```
+
+The cup appears in the bar's right section. Installing changes nothing about
+what your machine does: the suspend delay ships as ∞ (never) until you pick
+a value.
+
+## Usage
+
+Click the cup (or run `omarchy-shell halmylyseas.ristretto open`) to open the
+panel. Everything is also reachable from the keyboard: arrows or `hjkl` move
+a cursor between controls, `Left`/`Right` nudge a slider or walk the sleep
+row, `Space` or `Enter` flip a switch or pick a sleep delay, `Esc` closes.
+
+The hero subtitle states what the machine will actually do — `SLEEP 90S
+AFTER LOCK`, `SLEEP NEVER`, or `STAYING AWAKE` — so the armed behaviour is
+readable at a glance.
+
+Suspending needs no root and no polkit prompt: it goes through
+`systemctl suspend`, which logind grants to the active session.
+
+## Configuration
+
+The panel is the intended interface, but everything it writes lands in plain
+config you can edit or script. The delays live in `~/.config/omarchy/shell.json`
+under `idle` (seconds — shared with Omarchy itself):
+
+```json
+"idle": { "screensaver": 180, "lock": 300 }
+```
+
+Ristretto's own settings live in its bar-layout entry in the same file:
+
+| Key | Default | Meaning |
+|---|---|---|
+| `sleepAfterIdleLock` | `-1` | Seconds between an idle lock and suspend; `-1` means never. |
+| `dryRun` | `false` | When `true`, replaces the real suspend with a journal line and a notification. Config-only; meant for testing timing without suspending the machine. |
+
+```bash
+# set a value from the CLI
+omarchy-shell shell setBarWidget halmylyseas.ristretto sleepAfterIdleLock 90 '{}'
+```
+
+The service logs every decision to the journal, prefixed `ristretto`:
+
+```bash
+journalctl --user -f | grep "qml: ristretto"
+```
+
+## Removal
+
+```bash
+omarchy plugin remove halmylyseas.ristretto
+```
+
+This disables the plugin and deletes its folder. Note that disabling (or
+removing) splices the plugin's entry out of `shell.json`, so its settings —
+the sleep delay included — do not survive a disable/enable cycle; the `idle`
+delays are Omarchy's own and are left as you set them.
+
+## Licence
+
+[MIT](LICENSE)
