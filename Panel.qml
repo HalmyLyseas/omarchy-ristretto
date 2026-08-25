@@ -5,9 +5,11 @@ import qs.Commons
 import qs.Ui
 import "Model.js" as Model
 
-// P4: every control is live. The delay sliders write shell.json's idle keys,
-// both switches drive the native state they mirror, and the sleep row stores
-// the delay the service arms on an idle lock.
+// P5: every control is live and reachable from the keyboard. The delay
+// sliders write shell.json's idle keys, both switches drive the native state
+// they mirror, and the sleep row stores the delay the service arms on an
+// idle lock. The hero subtitle carries the armed behaviour -- the one thing
+// the controls below do not show at a glance.
 Panel {
   id: root
 
@@ -34,10 +36,11 @@ Panel {
   readonly property int screensaverIndex: Model.nearestIndex(Model.SCREENSAVER_STOPS, screensaverSeconds / 60)
   readonly property int lockIndex: Model.nearestIndex(Model.LOCK_STOPS, lockSeconds / 60)
 
-  // The plugin's own setting. Default is "never", so installing the plugin
-  // cannot change what the machine does until the user asks for it.
+  // The plugin's own settings. The delay defaults to "never", so installing
+  // the plugin cannot change what the machine does until the user asks for it.
   readonly property int sleepSeconds: Number(setting("sleepAfterIdleLock", Model.SLEEP_NEVER))
   readonly property int sleepIndex: Model.indexOfExact(Model.SLEEP_STOPS, sleepSeconds)
+  readonly property bool dryRun: setting("dryRun", false) === true
 
   // Stay awake is owned by omarchy.idle; bind, never cache.
   readonly property var idleService: bar && bar.shell ? bar.shell.firstPartyServiceFor("omarchy.idle") : null
@@ -51,6 +54,63 @@ Panel {
   // flag file the way omarchy.idle probes its own: a process for the answer,
   // a directory watch to know when to re-ask.
   property bool screensaverOff: false
+
+  // What the machine will actually do, for the hero subtitle. Composed from
+  // the same bindings as the controls, so it can never disagree with them.
+  // Kept short deliberately: the hero meta gets the width left over after the
+  // stay-awake control, about two dozen caption characters before it elides.
+  readonly property string heroStatus: {
+    if (stayAwake) return "staying awake"
+    return sleepSeconds > 0 ? "sleep " + sleepSeconds + "s after lock" : "sleep never"
+  }
+
+  // ------------------------------------------------------ keyboard cursor
+  //
+  // Same state machine as the first-party Display panel: a section cursor
+  // driven by PanelKeyCatcher, revealed by the first arrow key, and kept in
+  // sync with the mouse through hover. Up/Down walk the sections; Left/Right
+  // nudge a slider or move along the sleep row; Space/Enter activate.
+
+  property bool cursorActive: false
+  property string focusSection: "stayawake"
+  property int selectedIndex: -1
+  readonly property var sections: ["stayawake", "screensaver", "ssdelay", "lockdelay", "sleep"]
+
+  function moveCursor(dy) {
+    var i = sections.indexOf(focusSection)
+    if (i < 0) { focusSection = sections[0]; selectedIndex = -1; return }
+    var next = Math.max(0, Math.min(sections.length - 1, i + dy))
+    if (next === i) return
+    focusSection = sections[next]
+    selectedIndex = focusSection === "sleep" ? Math.max(0, root.sleepIndex) : -1
+  }
+
+  function moveCursorH(dx) {
+    if (focusSection === "ssdelay") {
+      var s = Math.max(0, Math.min(Model.SCREENSAVER_STOPS.length - 1, root.screensaverIndex + dx))
+      if (s !== root.screensaverIndex) root.commitScreensaver(s)
+    } else if (focusSection === "lockdelay") {
+      var l = Math.max(0, Math.min(Model.LOCK_STOPS.length - 1, root.lockIndex + dx))
+      if (l !== root.lockIndex) root.commitLock(l)
+    } else if (focusSection === "sleep") {
+      selectedIndex = Math.max(0, Math.min(Model.SLEEP_STOPS.length - 1, selectedIndex + dx))
+    }
+  }
+
+  function activateCursor() {
+    if (focusSection === "stayawake") root.toggleStayAwake()
+    else if (focusSection === "screensaver") root.setScreensaverEnabled(!root.screensaverEnabled)
+    else if (focusSection === "sleep" && selectedIndex >= 0 && selectedIndex < Model.SLEEP_STOPS.length)
+      root.commitSleep(Model.SLEEP_STOPS[selectedIndex])
+  }
+
+  function pointCursor(section, index) {
+    root.cursorActive = true
+    root.focusSection = section
+    root.selectedIndex = index === undefined ? -1 : index
+  }
+
+  // -------------------------------------------------------------- writes
 
   // Persist both delays together. Either slider can move the other via the
   // clamp, so writing the pair keeps shell.json internally consistent in one
@@ -133,7 +193,12 @@ Panel {
   }
 
   Component.onCompleted: refreshScreensaverFlag()
-  onOpenedChanged: if (opened) refreshScreensaverFlag()
+  onOpenedChanged: if (opened) {
+    refreshScreensaverFlag()
+    cursorActive = false
+    focusSection = "stayawake"
+    selectedIndex = -1
+  }
 
   // ------------------------------------------------------------------ UI
 
@@ -150,6 +215,12 @@ Panel {
     PanelKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
+      onMoveRequested: function(dx, dy) {
+        if (!root.cursorActive) { root.cursorActive = true; return }
+        if (dy !== 0) root.moveCursor(dy)
+        else if (dx !== 0) root.moveCursorH(dx)
+      }
+      onActivateRequested: if (root.cursorActive) root.activateCursor()
       onCloseRequested: root.close()
     }
 
@@ -158,18 +229,20 @@ Panel {
       width: parent.width
       spacing: Style.space(10)
 
-      // ---------- Hero: mark, title, stay-awake master switch ----------
+      // ---------- Hero: mark, title, live status, stay-awake switch ----------
       PanelHero {
         width: parent.width
         title: "Ristretto"
+        meta: root.heroStatus
+        // The one setting with no control below: surface it as a badge so a
+        // machine that will not really suspend can never look armed.
+        detail: root.dryRun ? "DRY RUN" : ""
         foreground: root.foreground
         fontFamily: root.fontFamily
         iconComponent: Component {
-          Text {
-            text: ""
+          RistrettoIcon {
+            iconSize: Style.font.display
             color: root.foreground
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.display
           }
         }
         trailingControl: Component {
@@ -186,10 +259,18 @@ Panel {
             }
 
             ToggleSwitch {
+              id: stayAwakeSwitch
               anchors.verticalCenter: parent.verticalCenter
               checked: root.stayAwake
               foreground: root.foreground
+              hasCursor: root.cursorActive && root.focusSection === "stayawake"
               onToggled: root.toggleStayAwake()
+              onContainsMouseChanged: if (containsMouse) root.pointCursor("stayawake")
+
+              PanelToolTip {
+                visible: stayAwakeSwitch.containsMouse
+                text: "Pause all idle behaviour: no screensaver, no lock, no sleep"
+              }
             }
           }
         }
@@ -223,7 +304,14 @@ Panel {
             anchors.verticalCenter: parent.verticalCenter
             checked: root.screensaverEnabled
             foreground: root.foreground
+            hasCursor: root.cursorActive && root.focusSection === "screensaver"
             onToggled: root.setScreensaverEnabled(!root.screensaverEnabled)
+            onContainsMouseChanged: if (containsMouse) root.pointCursor("screensaver")
+
+            PanelToolTip {
+              visible: screensaverSwitch.containsMouse
+              text: "Launch the screensaver after the delay below"
+            }
           }
 
           Text {
@@ -239,9 +327,12 @@ Panel {
           }
         }
 
-        Item {
+        CursorSurface {
           width: parent.width
           height: screensaverSlider.implicitHeight + Style.spacing.controlGap
+          hasCursor: root.cursorActive && root.focusSection === "ssdelay"
+          foreground: root.foreground
+          outline: true
           opacity: root.screensaverOff ? 0.4 : 1.0
 
           PanelSlider {
@@ -257,6 +348,10 @@ Panel {
             tickCount: Model.SCREENSAVER_STOPS.length
             value: root.screensaverIndex
             onReleased: function(v) { root.commitScreensaver(v) }
+          }
+
+          HoverHandler {
+            onHoveredChanged: if (hovered) root.pointCursor("ssdelay")
           }
         }
       }
@@ -294,9 +389,12 @@ Panel {
           }
         }
 
-        Item {
+        CursorSurface {
           width: parent.width
           height: lockSlider.implicitHeight + Style.spacing.controlGap
+          hasCursor: root.cursorActive && root.focusSection === "lockdelay"
+          foreground: root.foreground
+          outline: true
 
           PanelSlider {
             id: lockSlider
@@ -311,6 +409,10 @@ Panel {
             tickCount: Model.LOCK_STOPS.length
             value: root.lockIndex
             onReleased: function(v) { root.commitLock(v) }
+          }
+
+          HoverHandler {
+            onHoveredChanged: if (hovered) root.pointCursor("lockdelay")
           }
         }
       }
@@ -352,7 +454,9 @@ Panel {
               verticalPadding: Style.spacing.controlPaddingY
               bordered: true
               active: root.sleepIndex === index
+              hasCursor: root.cursorActive && root.focusSection === "sleep" && root.selectedIndex === index
               onClicked: root.commitSleep(modelData)
+              onHovered: function(isHovered) { if (isHovered) root.pointCursor("sleep", index) }
             }
           }
         }
