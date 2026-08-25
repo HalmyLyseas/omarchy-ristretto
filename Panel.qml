@@ -237,6 +237,7 @@ Panel {
           RistrettoIcon {
             iconSize: Style.font.display
             color: root.foreground
+            steam: root.stayAwake
           }
         }
         trailingControl: Component {

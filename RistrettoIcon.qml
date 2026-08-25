@@ -13,8 +13,8 @@ Item {
   property real iconSize: Style.font.icon
   property color color: Color.foreground
 
-  // The steam is a state, not decoration: the bar shows it only while
-  // stay-awake keeps the coffee hot. The panel hero leaves it on.
+  // The steam is a state, not decoration: the bar and the panel hero show
+  // it only while stay-awake keeps the coffee hot.
   property bool steam: true
 
   width: iconSize
