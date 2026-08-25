@@ -7,9 +7,10 @@
 var SCREENSAVER_STOPS = [1, 2, 3, 5, 10, 15]
 var LOCK_STOPS = [2, 3, 5, 10, 15, 30]
 
-// Seconds. -1 is the "never" option rendered as the infinity glyph: the
+// Stored in seconds (the unit the service arms with), but the scale is
+// minutes: 1, 2, 3, 5, 10, and "never" as the last stop. -1 means the
 // suspend timer is simply not armed.
-var SLEEP_STOPS = [30, 60, 90, 120, 150, -1]
+var SLEEP_STOPS = [60, 120, 180, 300, 600, -1]
 var SLEEP_NEVER = -1
 
 // Nearest stop to an arbitrary value. Omarchy's defaults (screensaver 150s =
@@ -28,17 +29,38 @@ function nearestIndex(stops, value) {
   return best
 }
 
-function indexOfExact(stops, value) {
-  for (var i = 0; i < stops.length; i++) if (stops[i] === value) return i
-  return -1
-}
-
 function minutesLabel(minutes) {
   return minutes + (minutes === 1 ? " minute" : " minutes")
 }
 
+// Label for a value drawn from SLEEP_STOPS (always on-scale).
 function sleepLabel(seconds) {
-  return seconds === SLEEP_NEVER ? "∞" : seconds + "s"
+  return seconds > 0 ? minutesLabel(seconds / 60) : "never"
+}
+
+// Compact form for the hero status line, which also has to render legacy
+// off-scale values (a config written before the scale changed) faithfully.
+function sleepStatusShort(seconds) {
+  if (!(seconds > 0)) return "never"
+  return seconds % 60 === 0 ? (seconds / 60) + " min" : seconds + "s"
+}
+
+// Which stop the slider should sit on for an arbitrary stored value: the
+// nearest positive stop, or the "never" stop for -1. Off-scale values snap
+// the display only -- nothing is written until the user moves the slider.
+function sleepIndexFor(seconds) {
+  if (!(seconds > 0)) return SLEEP_STOPS.length - 1
+  var best = 0
+  var bestDelta = Infinity
+  for (var i = 0; i < SLEEP_STOPS.length; i++) {
+    if (SLEEP_STOPS[i] <= 0) continue
+    var delta = Math.abs(SLEEP_STOPS[i] - seconds)
+    if (delta < bestDelta) {
+      bestDelta = delta
+      best = i
+    }
+  }
+  return best
 }
 
 // --------------------------------------------------------------- the clamp

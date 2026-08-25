@@ -21,8 +21,8 @@ never leads to suspend.
   2, 3, 5, 10, 15 or 30 minutes. Always strictly above the screensaver delay;
   moving either slider nudges the other when they would collide.
 - **Sleep after idle lock** — how long after an idle-driven lock the machine
-  suspends: 30, 60, 90, 120 or 150 seconds, or ∞ for never. Unlocking during
-  the countdown cancels it.
+  suspends: 1, 2, 3, 5 or 10 minutes, or never. Unlocking during the
+  countdown cancels it.
 - **Screensaver switch** — Omarchy's native `screensaver-off` flag, which has
   a CLI (`omarchy toggle screensaver`) but no other UI.
 - **Stay awake switch** — the native `omarchy.idle` stay-awake state as a
@@ -47,10 +47,10 @@ a value.
 
 Click the cup (or run `omarchy-shell halmylyseas.ristretto open`) to open the
 panel. Everything is also reachable from the keyboard: arrows or `hjkl` move
-a cursor between controls, `Left`/`Right` nudge a slider or walk the sleep
-row, `Space` or `Enter` flip a switch or pick a sleep delay, `Esc` closes.
+a cursor between controls, `Left`/`Right` nudge the focused slider, `Space`
+or `Enter` flip a switch, `Esc` closes.
 
-The hero subtitle states what the machine will actually do — `SLEEP 90S
+The hero subtitle states what the machine will actually do — `SLEEP 5 MIN
 AFTER LOCK`, `SLEEP NEVER`, or `STAYING AWAKE` — so the armed behaviour is
 readable at a glance.
 
@@ -76,7 +76,7 @@ Ristretto's own settings live in its bar-layout entry in the same file:
 
 ```bash
 # set a value from the CLI
-omarchy-shell shell setBarWidget halmylyseas.ristretto sleepAfterIdleLock 90 '{}'
+omarchy-shell shell setBarWidget halmylyseas.ristretto sleepAfterIdleLock 300 '{}'
 ```
 
 The service logs every decision to the journal, prefixed `ristretto`:

@@ -39,7 +39,7 @@ Panel {
   // The plugin's own settings. The delay defaults to "never", so installing
   // the plugin cannot change what the machine does until the user asks for it.
   readonly property int sleepSeconds: Number(setting("sleepAfterIdleLock", Model.SLEEP_NEVER))
-  readonly property int sleepIndex: Model.indexOfExact(Model.SLEEP_STOPS, sleepSeconds)
+  readonly property int sleepIndex: Model.sleepIndexFor(sleepSeconds)
   readonly property bool dryRun: setting("dryRun", false) === true
 
   // Stay awake is owned by omarchy.idle; bind, never cache.
@@ -61,7 +61,8 @@ Panel {
   // stay-awake control, about two dozen caption characters before it elides.
   readonly property string heroStatus: {
     if (stayAwake) return "staying awake"
-    return sleepSeconds > 0 ? "sleep " + sleepSeconds + "s after lock" : "sleep never"
+    return sleepSeconds > 0 ? "sleep " + Model.sleepStatusShort(sleepSeconds) + " after lock"
+                            : "sleep never"
   }
 
   // ------------------------------------------------------ keyboard cursor
@@ -73,16 +74,12 @@ Panel {
 
   property bool cursorActive: false
   property string focusSection: "stayawake"
-  property int selectedIndex: -1
   readonly property var sections: ["stayawake", "screensaver", "ssdelay", "lockdelay", "sleep"]
 
   function moveCursor(dy) {
     var i = sections.indexOf(focusSection)
-    if (i < 0) { focusSection = sections[0]; selectedIndex = -1; return }
-    var next = Math.max(0, Math.min(sections.length - 1, i + dy))
-    if (next === i) return
-    focusSection = sections[next]
-    selectedIndex = focusSection === "sleep" ? Math.max(0, root.sleepIndex) : -1
+    if (i < 0) { focusSection = sections[0]; return }
+    focusSection = sections[Math.max(0, Math.min(sections.length - 1, i + dy))]
   }
 
   function moveCursorH(dx) {
@@ -93,21 +90,19 @@ Panel {
       var l = Math.max(0, Math.min(Model.LOCK_STOPS.length - 1, root.lockIndex + dx))
       if (l !== root.lockIndex) root.commitLock(l)
     } else if (focusSection === "sleep") {
-      selectedIndex = Math.max(0, Math.min(Model.SLEEP_STOPS.length - 1, selectedIndex + dx))
+      var p = Math.max(0, Math.min(Model.SLEEP_STOPS.length - 1, root.sleepIndex + dx))
+      if (p !== root.sleepIndex) root.commitSleep(Model.SLEEP_STOPS[p])
     }
   }
 
   function activateCursor() {
     if (focusSection === "stayawake") root.toggleStayAwake()
     else if (focusSection === "screensaver") root.setScreensaverEnabled(!root.screensaverEnabled)
-    else if (focusSection === "sleep" && selectedIndex >= 0 && selectedIndex < Model.SLEEP_STOPS.length)
-      root.commitSleep(Model.SLEEP_STOPS[selectedIndex])
   }
 
-  function pointCursor(section, index) {
+  function pointCursor(section) {
     root.cursorActive = true
     root.focusSection = section
-    root.selectedIndex = index === undefined ? -1 : index
   }
 
   // -------------------------------------------------------------- writes
@@ -197,7 +192,6 @@ Panel {
     refreshScreensaverFlag()
     cursorActive = false
     focusSection = "stayawake"
-    selectedIndex = -1
   }
 
   // ------------------------------------------------------------------ UI
@@ -422,42 +416,60 @@ Panel {
       // ---------- Sleep after idle lock ----------
       Column {
         width: parent.width
-        spacing: Style.space(10)
+        spacing: Style.space(6)
         opacity: root.stayAwake ? 0.4 : 1.0
 
-        PanelSectionHeader {
-          text: "SLEEP AFTER IDLE LOCK"
-          foreground: root.foreground
-          fontFamily: root.fontFamily
+        Item {
+          width: parent.width
+          implicitHeight: Math.max(sleepHeader.implicitHeight, sleepValue.implicitHeight)
+
+          PanelSectionHeader {
+            id: sleepHeader
+            text: "SLEEP AFTER IDLE LOCK"
+            foreground: root.foreground
+            fontFamily: root.fontFamily
+            anchors.left: parent.left
+            anchors.verticalCenter: parent.verticalCenter
+          }
+
+          Text {
+            id: sleepValue
+            text: Model.sleepLabel(Model.SLEEP_STOPS[
+              sleepSlider.dragging ? Math.round(sleepSlider.liveValue) : root.sleepIndex])
+            color: root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            font.bold: true
+            anchors.right: parent.right
+            anchors.rightMargin: Style.space(6)
+            anchors.verticalCenter: parent.verticalCenter
+          }
         }
 
-        Row {
-          id: sleepRow
+        CursorSurface {
           width: parent.width
-          spacing: Style.space(6)
+          height: sleepSlider.implicitHeight + Style.spacing.controlGap
+          hasCursor: root.cursorActive && root.focusSection === "sleep"
+          foreground: root.foreground
+          outline: true
 
-          readonly property real cellWidth:
-            Math.floor((width - spacing * (Model.SLEEP_STOPS.length - 1)) / Model.SLEEP_STOPS.length)
+          PanelSlider {
+            id: sleepSlider
+            bar: root.bar
+            anchors.fill: parent
+            anchors.leftMargin: Style.space(6)
+            anchors.rightMargin: Style.space(6)
+            minimum: 0
+            maximum: Model.SLEEP_STOPS.length - 1
+            step: 1
+            integer: true
+            tickCount: Model.SLEEP_STOPS.length
+            value: root.sleepIndex
+            onReleased: function(v) { root.commitSleep(Model.SLEEP_STOPS[Math.round(v)]) }
+          }
 
-          Repeater {
-            model: Model.SLEEP_STOPS
-
-            Button {
-              required property var modelData
-              required property int index
-
-              width: sleepRow.cellWidth
-              text: Model.sleepLabel(modelData)
-              fontSize: Style.font.caption
-              foreground: root.foreground
-              fontFamily: root.fontFamily
-              verticalPadding: Style.spacing.controlPaddingY
-              bordered: true
-              active: root.sleepIndex === index
-              hasCursor: root.cursorActive && root.focusSection === "sleep" && root.selectedIndex === index
-              onClicked: root.commitSleep(modelData)
-              onHovered: function(isHovered) { if (isHovered) root.pointCursor("sleep", index) }
-            }
+          HoverHandler {
+            onHoveredChanged: if (hovered) root.pointCursor("sleep")
           }
         }
       }
