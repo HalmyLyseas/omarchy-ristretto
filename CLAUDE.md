@@ -52,8 +52,9 @@ Done means: all four work on a live session, the plugin survives
 2. **Never fork or clone a first-party plugin** (`omarchy plugin clone ...`) for
    this project. A clone replaces the built-in and permanently stops receiving
    upstream fixes. Everything needed here is reachable through documented seams
-   — see `001` §4. If you believe you need a clone, you have missed a seam;
-   re-read `001` §4 before concluding otherwise.
+   — the shell's config API, its service registry, and the shared Ui kit
+   (`001` §4 corroborates). If you believe you need a clone, you have missed
+   one of those seams.
 3. **Do not run `omarchy refresh ...` or `omarchy reinstall`** — they overwrite
    user config. If a reset seems necessary, ask the user first.
 4. **Ask before anything that suspends, locks, or blanks the screen** during
@@ -97,7 +98,10 @@ anything needing root.
   design looks obvious.
 - **Measure, don't assume.** Every non-obvious claim in `001` was verified
   against the live system, and several plausible-sounding hypotheses were killed
-  that way. The methodology is documented in `001` §6 — reuse it.
+  that way. Measure the same way: probe the live system (a separate Quickshell
+  instance works well), redirect probe output to files — never pipes, which
+  block-buffer — and sample the surrounding conditions alongside the probe
+  (`001` §6 corroborates).
 - **Testing idle behaviour requires the human.** The probe needs ~26 seconds
   with no keyboard or mouse input. You cannot fake this; ask the user, tell them
   exactly how long, and tell them when it's finished.

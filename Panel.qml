@@ -66,7 +66,7 @@ Panel {
   // stay-awake control, about two dozen caption characters before it elides.
   readonly property string heroStatus: {
     if (stayAwake) return "staying awake"
-    return sleepSeconds > 0 ? "sleep " + Model.sleepStatusShort(sleepSeconds) + " after lock"
+    return sleepSeconds > 0 ? "sleep " + Model.sleepLabel(sleepSeconds, true) + " after lock"
                             : "sleep never"
   }
 

@@ -263,6 +263,23 @@ Item {
     }
   }
 
+  // The host accepts plain-string bar-layout entries ("some.id"), renders
+  // them fine, but can neither read settings from nor write settings into
+  // one -- updateEntryInline matches only object entries. The feature then
+  // fails safe but silently; one delayed check gives it a voice. Delayed,
+  // because at startup shellConfig briefly holds built-in defaults with no
+  // plugin entries at all.
+  Timer {
+    interval: 15000
+    running: true
+    repeat: false
+    onTriggered: {
+      if (Model.entryFor(root.shellConfig, "halmylyseas.ristretto") === null)
+        log("no config entry found -- settings cannot persist and defaults are in effect " +
+            "(a string-form bar-layout entry has this effect; make it an object with an id key)")
+    }
+  }
+
   Component.onCompleted: {
     refreshScreensaverFlag()
     log("service ready (sleep=" + sleepSeconds + "s dryRun=" + dryRun + ")")

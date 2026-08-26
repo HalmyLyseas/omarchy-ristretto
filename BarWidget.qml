@@ -2,8 +2,10 @@ import QtQuick
 import qs.Commons
 import qs.Ui
 
-// Bar entry point. Owns the button and defers the panel to a Loader, so the
-// bar stays light until the panel is first needed.
+// Bar entry point. Owns the button and hosts the panel through an eagerly
+// active Loader -- the first-party pattern (clock, weather). The panel is
+// NOT deferred: it is built once per monitor at bar startup, so keep panel
+// startup work light and machine-wide watchers in the service.
 BarWidget {
   id: root
   moduleName: "halmylyseas.ristretto"

@@ -33,34 +33,24 @@ function minutesLabel(minutes) {
   return minutes + (minutes === 1 ? " minute" : " minutes")
 }
 
-// Label for a value drawn from SLEEP_STOPS (always on-scale).
-function sleepLabel(seconds) {
-  return seconds > 0 ? minutesLabel(seconds / 60) : "never"
-}
-
-// Compact form for the hero status line, which also has to render legacy
-// off-scale values (a config written before the scale changed) faithfully.
-function sleepStatusShort(seconds) {
+// One formatter for a sleep value so the slider caption and the hero can
+// never disagree. The short form is for the hero's width budget and also
+// renders legacy off-scale values (a config written before the scale
+// changed) faithfully in seconds.
+function sleepLabel(seconds, short) {
   if (!(seconds > 0)) return "never"
-  return seconds % 60 === 0 ? (seconds / 60) + " min" : seconds + "s"
+  if (short) return seconds % 60 === 0 ? (seconds / 60) + " min" : seconds + "s"
+  return minutesLabel(seconds / 60)
 }
 
 // Which stop the slider should sit on for an arbitrary stored value: the
 // nearest positive stop, or the "never" stop for -1. Off-scale values snap
 // the display only -- nothing is written until the user moves the slider.
+// One nearest-stop algorithm in this file, not two: the positive stops are
+// exactly the array minus its "never" tail.
 function sleepIndexFor(seconds) {
   if (!(seconds > 0)) return SLEEP_STOPS.length - 1
-  var best = 0
-  var bestDelta = Infinity
-  for (var i = 0; i < SLEEP_STOPS.length; i++) {
-    if (SLEEP_STOPS[i] <= 0) continue
-    var delta = Math.abs(SLEEP_STOPS[i] - seconds)
-    if (delta < bestDelta) {
-      bestDelta = delta
-      best = i
-    }
-  }
-  return best
+  return nearestIndex(SLEEP_STOPS.slice(0, -1), seconds)
 }
 
 // --------------------------------------------------------------- the clamp
