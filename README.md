@@ -21,8 +21,9 @@ never leads to suspend.
   2, 3, 5, 10, 15 or 30 minutes. Always strictly above the screensaver delay;
   moving either slider nudges the other when they would collide.
 - **Sleep after idle lock** — how long after an idle-driven lock the machine
-  suspends: 1, 2, 3, 5 or 10 minutes, or never. Unlocking during the
-  countdown cancels it.
+  suspends: 1, 2, 3, 5 or 10 minutes, or never. A pending countdown is
+  cancelled by unlocking, by changing the delay, or by switching stay awake
+  on — anything that says "not now" means not now.
 - **Screensaver switch** — Omarchy's native `screensaver-off` flag, which has
   a CLI (`omarchy toggle screensaver`) but no other UI.
 - **Stay awake switch** — the native `omarchy.idle` stay-awake state as a
@@ -54,8 +55,8 @@ omarchy plugin add https://github.com/HalmyLyseas/omarchy-ristretto --enable
 ```
 
 The cup appears in the bar's right section. Installing changes nothing about
-what your machine does: the suspend delay ships as ∞ (never) until you pick
-a value.
+what your machine does: the suspend delay ships as *never* until you pick a
+value.
 
 ## Usage
 
@@ -68,8 +69,11 @@ The hero subtitle states what the machine will actually do — `SLEEP 5 MIN
 AFTER LOCK`, `SLEEP NEVER`, or `STAYING AWAKE` — so the armed behaviour is
 readable at a glance.
 
-Suspending needs no root and no polkit prompt: it goes through
-`systemctl suspend`, which logind grants to the active session.
+One caveat worth knowing: video players and browsers that implement the
+Wayland idle-inhibit protocol pause the whole idle pipeline while they
+play, but not every app does — Zoom's Linux client, for one, does not, so
+a long hands-off call will idle, lock, and eventually sleep. That is what
+the stay awake switch is for; the steaming cup reminds you it is on.
 
 ## Configuration
 
@@ -81,12 +85,17 @@ under `idle` (seconds — shared with Omarchy itself):
 "idle": { "screensaver": 180, "lock": 300 }
 ```
 
+Hand-edited values are respected, not repaired: the panel approximates an
+off-scale value on its sliders without writing anything back, and if an
+edit leaves the lock delay at or below the screensaver delay, the panel
+shows a warning — moving either slider fixes the pair.
+
 Ristretto's own settings live in its bar-layout entry in the same file:
 
 | Key | Default | Meaning |
 |---|---|---|
 | `sleepAfterIdleLock` | `-1` | Seconds between an idle lock and suspend; `-1` means never. |
-| `dryRun` | `false` | When `true`, replaces the real suspend with a journal line and a notification. Config-only; meant for testing timing without suspending the machine. |
+| `dryRun` | `false` | When `true`, replaces the real suspend with a journal line and a notification, and the panel shows a `DRY RUN` badge. Config-only; meant for testing timing without suspending the machine. |
 
 ```bash
 # set a value from the CLI
@@ -109,6 +118,11 @@ This disables the plugin and deletes its folder. Note that disabling (or
 removing) splices the plugin's entry out of `shell.json`, so its settings —
 the sleep delay included — do not survive a disable/enable cycle; the `idle`
 delays are Omarchy's own and are left as you set them.
+
+## Developing
+
+Design decisions, host-API traps, and the testing workflow are in
+[docs/developers.md](docs/developers.md).
 
 ## Licence
 
