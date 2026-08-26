@@ -1,4 +1,5 @@
 import QtQuick
+import Quickshell
 import Quickshell.Io
 import "Model.js" as Model
 
@@ -153,6 +154,78 @@ Item {
     console.log("ristretto " + message)
   }
 
+  // ------------------------------------------------- the screensaver flag
+  //
+  // The screensaver-off flag has no QML reader anywhere in Omarchy, so this
+  // service owns the machine's one watcher for it and panels bind. The
+  // pattern is the host's own stay-awake watcher: an exit-code probe that
+  // mkdirs the watched directory (a FileView cannot attach to a path that
+  // does not exist yet, and on a fresh machine it does not), and a reload
+  // of the directory watch after every probe so it attaches once possible.
+
+  property bool screensaverOff: false
+  property bool screensaverDesiredOff: false
+
+  function refreshScreensaverFlag() {
+    if (!screensaverFlagProbe.running) screensaverFlagProbe.running = true
+  }
+
+  // The switch's write path. Optimistic so the switch answers instantly;
+  // the probe corrects it if the write fails. A flip arriving while the
+  // writer is still running is reconciled on exit rather than lost -- a
+  // Process ignores running=true while already running, so a rapid second
+  // click would otherwise silently never land.
+  function setScreensaverOff(off) {
+    root.screensaverDesiredOff = off === true
+    root.screensaverOff = root.screensaverDesiredOff
+    maybeWriteScreensaverFlag()
+  }
+
+  function maybeWriteScreensaverFlag() {
+    if (screensaverWriter.running) return
+    screensaverWriter.wrote = root.screensaverDesiredOff
+    // The explicit on/off action, never the bare flip: a caller that knows
+    // the state it wants must not depend on what the state happened to be.
+    screensaverWriter.command = ["bash", "-lc",
+      root.screensaverDesiredOff ? "omarchy-toggle screensaver-off on"
+                                 : "omarchy-toggle screensaver-off off"]
+    screensaverWriter.running = true
+  }
+
+  Process {
+    id: screensaverWriter
+    property bool wrote: false
+    onExited: {
+      if (root.screensaverDesiredOff !== wrote) {
+        root.maybeWriteScreensaverFlag()
+        return
+      }
+      root.refreshScreensaverFlag()
+    }
+  }
+
+  Process {
+    id: screensaverFlagProbe
+    // bash -lc, as the host spawns its own CLIs: a login shell rebuilds
+    // PATH in sessions where the compositor environment lacks the omarchy
+    // bin directory. The tool's exit code is the whole answer.
+    command: ["bash", "-lc",
+      "mkdir -p \"$HOME/.local/state/omarchy/toggles\"; omarchy-toggle-enabled screensaver-off"]
+    onExited: function(exitCode, exitStatus) {
+      root.screensaverOff = exitCode === 0
+      togglesWatch.reload()
+    }
+  }
+
+  FileView {
+    id: togglesWatch
+    path: Quickshell.env("HOME") + "/.local/state/omarchy/toggles"
+    watchChanges: true
+    printErrors: false
+    onFileChanged: root.refreshScreensaverFlag()
+  }
+
+
   Process {
     id: suspendProcess
     // Success is evidenced by the machine actually suspending; a refusal
@@ -190,5 +263,8 @@ Item {
     }
   }
 
-  Component.onCompleted: log("service ready (sleep=" + sleepSeconds + "s dryRun=" + dryRun + ")")
+  Component.onCompleted: {
+    refreshScreensaverFlag()
+    log("service ready (sleep=" + sleepSeconds + "s dryRun=" + dryRun + ")")
+  }
 }

@@ -1,6 +1,4 @@
 import QtQuick
-import Quickshell
-import Quickshell.Io
 import qs.Commons
 import qs.Ui
 import "Model.js" as Model
@@ -55,14 +53,12 @@ Panel {
   readonly property var idleService: bar && bar.shell ? bar.shell.firstPartyServiceFor("omarchy.idle") : null
   readonly property bool stayAwake: idleService ? idleService.stayAwake === true : false
 
-  // Ristretto owns timing; `omarchy toggle screensaver` owns on/off. Reading
-  // the flag as "enabled" keeps the switch's sense the same as the label.
+  // The screensaver flag is owned by this plugin's own service -- one
+  // watcher machine-wide, panels bind. Reading it as "enabled" keeps the
+  // switch's sense the same as the label.
+  readonly property var ristrettoService: shell ? shell.serviceFor("halmylyseas.ristretto") : null
+  readonly property bool screensaverOff: ristrettoService ? ristrettoService.screensaverOff === true : false
   readonly property bool screensaverEnabled: !screensaverOff
-
-  // The screensaver flag has no QML reader anywhere in Omarchy, so probe the
-  // flag file the way omarchy.idle probes its own: a process for the answer,
-  // a directory watch to know when to re-ask.
-  property bool screensaverOff: false
 
   // What the machine will actually do, for the hero subtitle. Composed from
   // the same bindings as the controls, so it can never disagree with them.
@@ -162,20 +158,11 @@ Panel {
       idleService.setIdleEnabled(root.stayAwake)
   }
 
-  // Use the explicit on/off action, never the bare flip: a panel that already
-  // shows the state must not depend on what the state happened to be. This is
-  // also why `omarchy-toggle` is called rather than `omarchy toggle
-  // screensaver`, whose wrapper fires a desktop notification that would be
-  // redundant next to a visible switch.
+  // The service owns the write too, with its optimistic set and its
+  // lost-click reconciliation; the panel only states the intent.
   function setScreensaverEnabled(enabled) {
-    root.screensaverOff = !enabled
-    screensaverWriter.command = ["omarchy-toggle", "screensaver-off", enabled ? "off" : "on"]
-    screensaverWriter.running = true
-  }
-
-  Process {
-    id: screensaverWriter
-    onExited: root.refreshScreensaverFlag()
+    if (ristrettoService && typeof ristrettoService.setScreensaverOff === "function")
+      ristrettoService.setScreensaverOff(!enabled)
   }
 
   // updateEntryInline replaces the entry with { id } plus what it is handed,
@@ -189,28 +176,7 @@ Panel {
                            Model.mergedSettings(root.settings, "sleepAfterIdleLock", seconds))
   }
 
-  function refreshScreensaverFlag() {
-    if (!screensaverFlagProbe.running) screensaverFlagProbe.running = true
-  }
-
-  Process {
-    id: screensaverFlagProbe
-    command: ["bash", "-c", "if omarchy-toggle-enabled screensaver-off; then echo yes; else echo no; fi"]
-    stdout: SplitParser {
-      onRead: function(line) { root.screensaverOff = String(line).trim() === "yes" }
-    }
-  }
-
-  FileView {
-    path: Quickshell.env("HOME") + "/.local/state/omarchy/toggles"
-    watchChanges: true
-    printErrors: false
-    onFileChanged: root.refreshScreensaverFlag()
-  }
-
-  Component.onCompleted: refreshScreensaverFlag()
   onOpenedChanged: if (opened) {
-    refreshScreensaverFlag()
     cursorActive = false
     focusSection = "stayawake"
   }
