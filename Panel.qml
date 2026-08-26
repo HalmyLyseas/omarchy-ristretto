@@ -5,11 +5,11 @@ import qs.Commons
 import qs.Ui
 import "Model.js" as Model
 
-// P5: every control is live and reachable from the keyboard. The delay
-// sliders write shell.json's idle keys, both switches drive the native state
-// they mirror, and the sleep row stores the delay the service arms on an
-// idle lock. The hero subtitle carries the armed behaviour -- the one thing
-// the controls below do not show at a glance.
+// The control panel: every control is live and reachable from the keyboard.
+// The delay sliders write shell.json's idle keys, both switches drive the
+// native state they mirror, and the sleep slider stores the delay the
+// service arms on an idle lock. The hero subtitle carries the armed
+// behaviour -- the one thing the controls below do not show at a glance.
 Panel {
   id: root
 
@@ -27,12 +27,21 @@ Panel {
   // ---------------------------------------------------------------- state
 
   readonly property var shell: bar && bar.shell ? bar.shell : null
-  readonly property var idleConfig: shell && shell.shellConfig && shell.shellConfig.idle
-    ? shell.shellConfig.idle : ({})
 
-  // omarchy.idle stores seconds; this panel works in minutes.
-  readonly property int screensaverSeconds: Number(idleConfig.screensaver) > 0 ? Number(idleConfig.screensaver) : 150
-  readonly property int lockSeconds: Number(idleConfig.lock) > 0 ? Number(idleConfig.lock) : 300
+  // The delays displayed are the ones omarchy.idle actually acts on: its
+  // derived timeout properties, not a re-parse of shell.json. The service
+  // owns the parsing rules (0 is valid and means "immediately"; negatives
+  // fall back to its defaults), so binding it keeps this panel honest even
+  // if those rules change.
+  readonly property int screensaverSeconds:
+    idleService ? Number(idleService.screensaverTimeoutSeconds) : 150
+  readonly property int lockSeconds:
+    idleService ? Number(idleService.lockTimeoutSeconds) : 300
+
+  // A stored pair that violates the strict clamp (hand-edited config) is
+  // surfaced, not silently repaired: opening a panel must never write.
+  // Committing either slider repairs it through the clamp.
+  readonly property bool delaysConflict: lockSeconds <= screensaverSeconds
   readonly property int screensaverIndex: Model.nearestIndex(Model.SCREENSAVER_STOPS, screensaverSeconds / 60)
   readonly property int lockIndex: Model.nearestIndex(Model.LOCK_STOPS, lockSeconds / 60)
 
@@ -82,16 +91,20 @@ Panel {
     focusSection = sections[Math.max(0, Math.min(sections.length - 1, i + dy))]
   }
 
+  // Steps are computed from the ACTUAL stored value, not the snapped index:
+  // an off-scale 2.5 minutes steps down to 2 rather than skipping to 1, and
+  // a legacy above-scale sleep value cannot jump to "never" from a single
+  // "make it longer" keystroke.
   function moveCursorH(dx) {
     if (focusSection === "ssdelay") {
-      var s = Math.max(0, Math.min(Model.SCREENSAVER_STOPS.length - 1, root.screensaverIndex + dx))
-      if (s !== root.screensaverIndex) root.commitScreensaver(s)
+      var s = Model.stepFrom(Model.SCREENSAVER_STOPS, root.screensaverSeconds / 60, dx)
+      if (s >= 0) root.commitScreensaver(s)
     } else if (focusSection === "lockdelay") {
-      var l = Math.max(0, Math.min(Model.LOCK_STOPS.length - 1, root.lockIndex + dx))
-      if (l !== root.lockIndex) root.commitLock(l)
+      var l = Model.stepFrom(Model.LOCK_STOPS, root.lockSeconds / 60, dx)
+      if (l >= 0) root.commitLock(l)
     } else if (focusSection === "sleep") {
-      var p = Math.max(0, Math.min(Model.SLEEP_STOPS.length - 1, root.sleepIndex + dx))
-      if (p !== root.sleepIndex) root.commitSleep(Model.SLEEP_STOPS[p])
+      var p = Model.sleepStepFrom(root.sleepSeconds, dx)
+      if (p !== null) root.commitSleep(p)
     }
   }
 
@@ -107,28 +120,36 @@ Panel {
 
   // -------------------------------------------------------------- writes
 
-  // Persist both delays together. Either slider can move the other via the
-  // clamp, so writing the pair keeps shell.json internally consistent in one
-  // mutation instead of two that briefly disagree. omarchy.idle binds its
-  // timeouts reactively, so this re-arms the cycle with no restart.
-  function writeDelays(screensaverMinutes, lockMinutes) {
+  // Write only the keys named in the patch: the untouched delay keeps
+  // whatever the user (or their hand-edited config) holds, even off-scale
+  // values this panel can only approximate. omarchy.idle binds its timeouts
+  // reactively, so a write re-arms the cycle with no restart.
+  function writeIdle(patch) {
     var host = root.shell
     if (!host || typeof host.mutateShellConfig !== "function") return
     host.mutateShellConfig(function(config) {
       if (!config.idle || typeof config.idle !== "object") config.idle = ({})
-      config.idle.screensaver = Math.round(screensaverMinutes * 60)
-      config.idle.lock = Math.round(lockMinutes * 60)
+      for (var key in patch) config.idle[key] = patch[key]
     })
   }
 
+  // The strict clamp is checked against the ACTUAL stored partner value,
+  // and the partner is written only when the clamp forces it to move --
+  // one mutation either way, so shell.json never briefly disagrees.
   function commitScreensaver(sliderValue) {
-    var pair = Model.pairFromScreensaver(Math.round(sliderValue), root.lockIndex)
-    writeDelays(pair.screensaver, pair.lock)
+    var ss = Model.SCREENSAVER_STOPS[Math.round(sliderValue)]
+    var patch = ({ screensaver: ss * 60 })
+    if (root.lockSeconds <= ss * 60)
+      patch.lock = Model.LOCK_STOPS[Model.lockIndexAbove(ss, root.lockIndex)] * 60
+    writeIdle(patch)
   }
 
   function commitLock(sliderValue) {
-    var pair = Model.pairFromLock(Math.round(sliderValue), root.screensaverIndex)
-    writeDelays(pair.screensaver, pair.lock)
+    var lk = Model.LOCK_STOPS[Math.round(sliderValue)]
+    var patch = ({ lock: lk * 60 })
+    if (root.screensaverSeconds >= lk * 60)
+      patch.screensaver = Model.SCREENSAVER_STOPS[Model.screensaverIndexBelow(lk, root.screensaverIndex)] * 60
+    writeIdle(patch)
   }
 
   // The service owns the flag file and its persistence, so hand the decision
@@ -409,6 +430,20 @@ Panel {
           HoverHandler {
             onHoveredChanged: if (hovered) root.pointCursor("lockdelay")
           }
+        }
+
+        // A hand-edited config can hold lock <= screensaver, which makes the
+        // host fire both stages in the same pass. Surface it rather than
+        // silently repairing -- opening a panel must never write.
+        Text {
+          visible: root.delaysConflict
+          width: parent.width
+          text: "Stored lock delay is not above the screensaver delay; moving either slider repairs it."
+          wrapMode: Text.WordWrap
+          color: root.dim
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+          font.italic: true
         }
       }
 

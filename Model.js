@@ -94,16 +94,32 @@ function screensaverIndexBelow(lockMinutes, currentScreensaverIndex) {
   return 0
 }
 
-// The pair that should be persisted when one slider moves. Returns minutes,
-// not indices: the caller converts to the seconds omarchy.idle stores.
-function pairFromScreensaver(screensaverIndex, currentLockIndex) {
-  var ss = SCREENSAVER_STOPS[screensaverIndex]
-  return { screensaver: ss, lock: LOCK_STOPS[lockIndexAbove(ss, currentLockIndex)] }
+// One keyboard step from the ACTUAL stored value, not from its snapped
+// index: a stored 2.5 minutes must step down to 2, not skip to 1, and a
+// legacy 15-minute sleep must step up to "never" only from above the top
+// stop, not because its display happened to snap there. Returns an index
+// into stops, or -1 when there is no stop in that direction.
+function stepFrom(stops, value, direction) {
+  if (direction > 0) {
+    for (var i = 0; i < stops.length; i++) if (stops[i] > value) return i
+    return -1
+  }
+  for (var j = stops.length - 1; j >= 0; j--) if (stops[j] < value) return j
+  return -1
 }
 
-function pairFromLock(lockIndex, currentScreensaverIndex) {
-  var lk = LOCK_STOPS[lockIndex]
-  return { screensaver: SCREENSAVER_STOPS[screensaverIndexBelow(lk, currentScreensaverIndex)], lock: lk }
+// Same, for the sleep scale, where the last stop is "never" (-1) and orders
+// as larger than every real delay. Returns seconds (or SLEEP_NEVER), or
+// null when there is no step in that direction.
+function sleepStepFrom(seconds, direction) {
+  var maxPos = SLEEP_STOPS.length - 2
+  if (!(seconds > 0)) return direction < 0 ? SLEEP_STOPS[maxPos] : null
+  if (direction > 0) {
+    for (var i = 0; i <= maxPos; i++) if (SLEEP_STOPS[i] > seconds) return SLEEP_STOPS[i]
+    return SLEEP_NEVER
+  }
+  for (var j = maxPos; j >= 0; j--) if (SLEEP_STOPS[j] < seconds) return SLEEP_STOPS[j]
+  return null
 }
 
 // ------------------------------------------------------- own settings entry
