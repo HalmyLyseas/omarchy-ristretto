@@ -5,14 +5,15 @@ behaviour: **when the screensaver starts, when the screen locks, and when the
 machine suspends.**
 
 This file is the project charter. `exchange/` is gitignored local scratch —
-the scoping documents, mockups, and icon sources this design rests on. When it
-is present, read `exchange/001-initial-scope.md` and
-`exchange/002-actions-plan.md` before touching anything: they carry measured
-facts that are counter-intuitive and expensive to rediscover, and the ordered
-plan for reaching the outcome below. When it is not — a fresh clone — this
-file and the README are enough to build, install, and use the plugin: the
-`001` / `002` citations below are corroboration for claims already stated
-here, never instructions to go and read something absent.
+the scoping documents, mockups, and icon sources this design rests on. When
+it is present, read the **highest-numbered** `exchange/NNN-*.md` first (it
+is the current state and supersedes the older ones), then
+`001-initial-scope.md` and `002-actions-plan.md` for the measured facts and
+the original plan. When it is not — a fresh clone — this file, the README,
+and `docs/developers.md` (the distilled design record and workflow traps,
+shipped with every clone) are enough to build, install, and maintain the
+plugin: the `001` / `002` citations below are corroboration for claims
+already stated here, never instructions to go and read something absent.
 
 ## The outcome this project must achieve
 
@@ -29,6 +30,11 @@ A user on this machine can, without editing JSON by hand:
 
 Done means: all four work on a live session, the plugin survives
 `omarchy update`, and no file under `/usr/share/omarchy/` was modified.
+
+**Status (2026-08-26): done.** All four outcomes are met and verified live —
+including the real suspend — and v1.0.0 is published at
+<https://github.com/HalmyLyseas/omarchy-ristretto>. The charter's rules
+remain in force for all future work.
 
 ### Explicitly out of scope (for now)
 

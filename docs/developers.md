@@ -121,3 +121,23 @@ via `shell.serviceFor("halmylyseas.ristretto")`.
   `respectInhibitors: true`, one `false` — in a separate Quickshell
   instance, and redirect the output to a file, never a pipe (pipes
   block-buffer and swallow everything).
+
+## Releasing an update
+
+The marketplace lists an exact validated commit, not a branch. To ship a
+new version once the plugin is listed:
+
+1. Bump `version` in `manifest.json`, commit, and push `master`.
+2. Open a **Plugin verification** issue on
+   `HANCORE-linux/omarchy-plugin-marketplace` (template
+   `verify-plugin.yml`), choose *newer upstream commit*, and give the
+   plugin ID, the repository root URL, and the full 40-character SHA of
+   the pushed HEAD.
+3. Validation and the security baseline run against that exact commit; a
+   maintainer's `approved-and-verified` replaces the listed snapshot.
+
+Until that lands, the listing shows *Update unverified* against a newer
+`master` — harmless, but avoid pushing mid-review of a pending
+submission, since approval is bound to the commit that was validated.
+Re-run `omarchy plugin validate .` and qmllint on a clean `git archive`
+checkout before any release commit.
