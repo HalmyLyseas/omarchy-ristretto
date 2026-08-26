@@ -2,15 +2,16 @@ import QtQuick
 import Quickshell.Io
 import "Model.js" as Model
 
-// P4: suspend the machine a chosen delay after an IDLE lock.
+// Suspend the machine a chosen delay after an IDLE lock.
 //
 // Omarchy has no suspend-on-idle of any kind -- logind's IdleAction never
 // fires here because nothing publishes Wayland idle state to logind, so the
 // only workable place for this is plugin-side.
 //
-// Two guards mean an install can never change what the machine does until
-// asked: the delay defaults to "never", and the real suspend is additionally
-// gated behind dryRun being false.
+// A fresh install can never change what the machine does: the delay
+// defaults to "never", so the timer is never armed until the user picks a
+// value. dryRun (config-only, off by default) is a testing valve that
+// replaces the real suspend with a log line and a notification.
 Item {
   id: root
 
@@ -22,6 +23,7 @@ Item {
 
   readonly property bool locked: lockService ? lockService.locked === true : false
   readonly property string idleEvent: idleService ? String(idleService.lastEvent || "") : ""
+  readonly property bool stayAwake: idleService ? idleService.stayAwake === true : false
 
   readonly property var shellConfig: shell ? shell.shellConfig : null
   readonly property int sleepSeconds:
@@ -41,8 +43,16 @@ Item {
   // "locked && idledThisCycle" never arms, and fails silently.
   //
   // lastEvent works: lockSystem() is called from exactly two places, both
-  // idle timers, and both log "lock-system: ...". Nothing else in the service
-  // ever emits it, so a manual Super+Escape cannot set this.
+  // idle-driven -- the lock timer, and the immediate branch that runs when
+  // the derived lock delay is zero. Nothing else in the service ever emits
+  // it, so a manual Super+Escape cannot set this.
+  //
+  // Accepted risk: lastEvent is a free-form log mirror, and the same
+  // synchronous call overwrites it with "process-start: lock ..." moments
+  // later -- this latch works because QML delivers one change signal per
+  // assignment. A host rewording of the event would disable the feature
+  // silently; the wording-independent replacement, should that happen, is a
+  // plugin-owned IdleMonitor consulted at the locked rising edge.
   //
   // A lock-system event that lands while the session is ALREADY manually
   // locked sets the latch but never arms, because locked has no rising edge
@@ -53,12 +63,14 @@ Item {
   onIdleEventChanged: {
     if (idleEvent.indexOf("lock-system") === 0) {
       root.idleLockPending = true
+      latchExpiry.restart()
       log("idle lock announced (" + idleEvent + ")")
     }
   }
 
   onLockedChanged: {
     if (locked) {
+      latchExpiry.stop()
       if (!root.idleLockPending) {
         log("locked, but not by idle -- not arming")
         return
@@ -67,6 +79,11 @@ Item {
         log("idle lock, but sleep delay is never -- not arming")
         return
       }
+      // The interval is assigned here, not bound: a live binding on a
+      // running Timer restarts the countdown on any config change, and a
+      // change to "never" (-1) would clamp to a one-second fuse instead of
+      // the cancellation the edit meant.
+      suspendTimer.interval = root.sleepSeconds * 1000
       suspendTimer.restart()
       log("armed: suspend in " + root.sleepSeconds + "s" + (root.dryRun ? " (dry run)" : ""))
     } else {
@@ -81,9 +98,25 @@ Item {
 
   Timer {
     id: suspendTimer
-    interval: Math.max(1, root.sleepSeconds) * 1000
     repeat: false
     onTriggered: root.suspend()
+  }
+
+  // An idle lock is announced before the lock process spawns, and that
+  // spawn can be skipped or fail -- in which case locked never rises and
+  // nothing else would ever clear the latch. A real lock lands within a
+  // second; if none has after this window, the announcement is dead and a
+  // later manual lock must not inherit it.
+  Timer {
+    id: latchExpiry
+    interval: 10000
+    repeat: false
+    onTriggered: {
+      if (root.idleLockPending && !root.locked) {
+        root.idleLockPending = false
+        log("idle lock announced but nothing locked -- latch dropped")
+      }
+    }
   }
 
   // Re-check rather than trust the timer: the session may have been unlocked
@@ -91,6 +124,14 @@ Item {
   function suspend() {
     if (!root.locked) {
       log("fired but no longer locked -- ignoring")
+      return
+    }
+    if (root.stayAwake) {
+      log("fired but stay-awake is on -- ignoring")
+      return
+    }
+    if (!root.armable) {
+      log("fired but sleep delay is never -- ignoring")
       return
     }
     if (root.dryRun) {
@@ -112,7 +153,15 @@ Item {
     console.log("ristretto " + message)
   }
 
-  Process { id: suspendProcess }
+  Process {
+    id: suspendProcess
+    // Success is evidenced by the machine actually suspending; a refusal
+    // is the case that must not pass silently in a service that logs every
+    // other decision.
+    onExited: function(exitCode, exitStatus) {
+      if (exitCode !== 0) log("systemctl suspend failed (exit " + exitCode + ")")
+    }
+  }
   Process { id: notifyProcess }
 
   // Config is reactive, so these confirm what the service is actually acting
@@ -121,8 +170,25 @@ Item {
   // property derived from the one that changed has not necessarily
   // re-evaluated yet when its change handler runs, so `armable` here can still
   // hold the previous value and print "-1s" instead of "never".
-  onSleepSecondsChanged: log("sleep delay is now " + (sleepSeconds > 0 ? sleepSeconds + "s" : "never"))
+  onSleepSecondsChanged: {
+    // A delay change while a countdown runs means "not that countdown":
+    // cancel rather than guess. The next idle lock arms with the new value.
+    if (suspendTimer.running) {
+      suspendTimer.stop()
+      log("sleep delay changed while counting down -- countdown cancelled")
+    }
+    log("sleep delay is now " + (sleepSeconds > 0 ? sleepSeconds + "s" : "never"))
+  }
   onDryRunChanged: log("dry run is now " + dryRun)
+
+  // The panel promises "no screensaver, no lock, no sleep" under
+  // stay-awake; a countdown armed before the flag flipped must honour it.
+  onStayAwakeChanged: {
+    if (stayAwake && suspendTimer.running) {
+      suspendTimer.stop()
+      log("stay-awake enabled -- countdown cancelled")
+    }
+  }
 
   Component.onCompleted: log("service ready (sleep=" + sleepSeconds + "s dryRun=" + dryRun + ")")
 }
