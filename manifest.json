@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "halmylyseas.ristretto",
   "name": "Ristretto",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "HalmyLyseas",
   "license": "MIT",
   "description": "Screensaver, lock, and sleep-after-idle-lock timing control.",

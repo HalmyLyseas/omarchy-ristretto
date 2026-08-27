@@ -34,8 +34,8 @@ Item {
 
   readonly property bool armable: sleepSeconds > 0
 
-  // True once an idle-driven lock has been announced and until the session
-  // unlocks again. This latch is the whole trick.
+  // True once an idle-driven lock attempt is confirmed in flight and until
+  // the session unlocks again. This latch is the whole trick.
   //
   // Neither obvious discriminator works. lockRequested is set by beginLock()
   // for EVERY lock, manual ones included, so it carries no origin. And
@@ -48,24 +48,54 @@ Item {
   // the derived lock delay is zero. Nothing else in the service ever emits
   // it, so a manual Super+Escape cannot set this.
   //
-  // Accepted risk: lastEvent is a free-form log mirror, and the same
-  // synchronous call overwrites it with "process-start: lock ..." moments
-  // later -- this latch works because QML delivers one change signal per
-  // assignment. A host rewording of the event would disable the feature
-  // silently; the wording-independent replacement, should that happen, is a
-  // plugin-owned IdleMonitor consulted at the locked rising edge.
+  // The announcement alone is not enough. lockSystem() logs "lock-system"
+  // BEFORE it spawns the lock process, and that spawn can be skipped or
+  // fail -- an announcement with no lock behind it must never survive to
+  // claim a manual lock the user makes moments later. So the latch is
+  // two-step: "lock-system" only marks an announcement, and the very next
+  // event -- emitted synchronously by the same lockSystem() call, one QML
+  // change signal per assignment -- resolves it. "process-start: lock"
+  // confirms a spawn and sets the latch; anything else ("process-skip: lock"
+  // included -- a stale, possibly hung earlier process is not this
+  // announcement's lock) drops it. Failing to arm on a real idle lock is
+  // acceptable; suspending a deliberate lock is not.
+  //
+  // Accepted risk: lastEvent is a free-form log mirror; this leans on the
+  // exact host wording of two adjacent events. A host rewording would
+  // disable the feature silently; the wording-independent replacement,
+  // should that happen, is a plugin-owned IdleMonitor consulted at the
+  // locked rising edge.
   //
   // A lock-system event that lands while the session is ALREADY manually
   // locked sets the latch but never arms, because locked has no rising edge
   // left to fire on. That is intended, not incidental: the session was locked
   // by the user's own hand, and a deliberate lock never leads to suspend.
   property bool idleLockPending: false
+  property bool idleLockAnnounced: false
 
   onIdleEventChanged: {
     if (idleEvent.indexOf("lock-system") === 0) {
-      root.idleLockPending = true
-      latchExpiry.restart()
-      log("idle lock announced (" + idleEvent + ")")
+      root.idleLockAnnounced = true
+      return
+    }
+    if (root.idleLockAnnounced) {
+      root.idleLockAnnounced = false
+      if (idleEvent.indexOf("process-start: lock") === 0) {
+        root.idleLockPending = true
+        latchExpiry.restart()
+        log("idle lock spawn confirmed (" + idleEvent + ")")
+      } else {
+        log("idle lock announced but no spawn (" + idleEvent + ") -- not latching")
+      }
+      return
+    }
+    // The confirmed lock process ended and the session still is not locked:
+    // that attempt failed, and a lock that lands later cannot be its result.
+    if (idleEvent.indexOf("process-exit: lock") === 0
+        && root.idleLockPending && !root.locked) {
+      root.idleLockPending = false
+      latchExpiry.stop()
+      log("idle lock process exited without locking -- latch dropped")
     }
   }
 
@@ -103,14 +133,15 @@ Item {
     onTriggered: root.suspend()
   }
 
-  // An idle lock is announced before the lock process spawns, and that
-  // spawn can be skipped or fail -- in which case locked never rises and
-  // nothing else would ever clear the latch. A real lock lands within a
-  // second; if none has after this window, the announcement is dead and a
-  // later manual lock must not inherit it.
+  // Even a confirmed spawn can die without the exit handler firing (a
+  // killed shell, a hung script) -- in which case locked never rises and
+  // nothing else would ever clear the latch. omarchy-system-lock requests
+  // the lock over IPC into this same shell process, so a real lock lands
+  // within a second; if none has after this window, the attempt is dead
+  // and a later manual lock must not inherit it.
   Timer {
     id: latchExpiry
-    interval: 10000
+    interval: 3000
     repeat: false
     onTriggered: {
       if (root.idleLockPending && !root.locked) {
@@ -220,6 +251,15 @@ Item {
   FileView {
     id: togglesWatch
     path: Quickshell.env("HOME") + "/.local/state/omarchy/toggles"
+    // Watch-only, so content must never load: a preloading FileView reads
+    // whatever the path holds with no byte ceiling, and this path is
+    // user-writable state -- replaced by or symlinked to a large regular
+    // file, it would be read whole into shell memory. The change watcher
+    // attaches on path alone, and reload() with preload off re-attaches
+    // the watch without reading (verified against Quickshell 0.3.0 source
+    // and probed live: three directory events delivered, a 512M file left
+    // unread through reload()).
+    preload: false
     watchChanges: true
     printErrors: false
     onFileChanged: root.refreshScreensaverFlag()

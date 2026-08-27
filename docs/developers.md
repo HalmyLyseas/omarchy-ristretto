@@ -21,15 +21,21 @@ via `shell.serviceFor("halmylyseas.ristretto")`.
 
 ## Decisions that look odd until you know why
 
-- **A manual lock never leads to suspend.** The discriminator is a latch on
-  `omarchy.idle`'s `lastEvent` starting with `lock-system` — the only
-  origin-carrying signal the host has (`lockRequested` is set for every
-  lock; `idledThisCycle` is already cleared when the lock lands). The latch
-  clears on unlock and expires after 10s if no lock ever lands, so a failed
-  lock spawn cannot poison a later deliberate lock. This is a string scrape
-  of a log mirror and is documented in `Service.qml` as an accepted risk;
-  the wording-independent replacement, if the host ever rewords it, is a
-  plugin-owned `IdleMonitor` consulted at the `locked` rising edge.
+- **A manual lock never leads to suspend.** The discriminator is a
+  two-step latch on `omarchy.idle`'s `lastEvent` — the only origin-carrying
+  signal the host has (`lockRequested` is set for every lock;
+  `idledThisCycle` is already cleared when the lock lands). `lock-system`
+  only announces; the latch sets when the same synchronous `lockSystem()`
+  call follows it with `process-start: lock`, confirming a spawn. Anything
+  else drops the announcement, a `process-exit: lock` while still unlocked
+  drops the latch, and a 3s expiry catches a confirmed spawn that dies
+  silently — so a failed or skipped lock spawn cannot poison a later
+  deliberate lock. The bias is explicit: missing a real idle lock fails
+  safe (no suspend); claiming a manual one must never happen. This is a
+  string scrape of a log mirror and is documented in `Service.qml` as an
+  accepted risk; the wording-independent replacement, if the host ever
+  rewords it, is a plugin-owned `IdleMonitor` consulted at the `locked`
+  rising edge.
 - **The suspend timer's interval is assigned at arm time, never bound.** A
   live binding on a running QML Timer restarts it on any config change —
   and a mid-countdown edit to "never" (-1) would clamp into a one-second
