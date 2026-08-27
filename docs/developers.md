@@ -21,21 +21,26 @@ via `shell.serviceFor("halmylyseas.ristretto")`.
 
 ## Decisions that look odd until you know why
 
-- **A manual lock never leads to suspend.** The discriminator is a
-  two-step latch on `omarchy.idle`'s `lastEvent` — the only origin-carrying
-  signal the host has (`lockRequested` is set for every lock;
-  `idledThisCycle` is already cleared when the lock lands). `lock-system`
-  only announces; the latch sets when the same synchronous `lockSystem()`
-  call follows it with `process-start: lock`, confirming a spawn. Anything
-  else drops the announcement, a `process-exit: lock` while still unlocked
-  drops the latch, and a 3s expiry catches a confirmed spawn that dies
-  silently — so a failed or skipped lock spawn cannot poison a later
-  deliberate lock. The bias is explicit: missing a real idle lock fails
-  safe (no suspend); claiming a manual one must never happen. This is a
-  string scrape of a log mirror and is documented in `Service.qml` as an
-  accepted risk; the wording-independent replacement, if the host ever
-  rewords it, is a plugin-owned `IdleMonitor` consulted at the `locked`
-  rising edge.
+- **A manual lock never leads to suspend.** Two independent gates. The
+  first is eligibility: a two-step latch on `omarchy.idle`'s `lastEvent` —
+  the only origin-carrying signal the host has (`lockRequested` is set for
+  every lock; `idledThisCycle` is already cleared when the lock lands).
+  `lock-system` only announces; the latch sets when the same synchronous
+  `lockSystem()` call follows it with `process-start: lock`, confirming a
+  spawn. Anything else drops the announcement, a `process-exit: lock`
+  while still unlocked drops the latch, and a 3s expiry catches a spawn
+  that dies silently. The second gate is origin, decided at the `locked`
+  rising edge itself, because `locked` is shared and a manual lock can win
+  the race against an in-flight idle lock: a plugin-owned `IdleMonitor`
+  (raw input, 30s window — well under the 2-minute minimum lock stop) must
+  report the user idle, judged one second after the edge so the compositor
+  resume event from a manual lock's own keypress has arrived. A manual
+  lock is input, so it can never pass this gate, whatever raised the edge.
+  The bias is explicit: missing a real idle lock fails safe (no suspend);
+  claiming a manual one must never happen. The latch's string scrape of a
+  log mirror is documented in `Service.qml` as an accepted risk — a host
+  rewording silently disables arming but can never suspend a manual lock,
+  because the origin gate does not depend on wording.
 - **The suspend timer's interval is assigned at arm time, never bound.** A
   live binding on a running QML Timer restarts it on any config change —
   and a mid-countdown edit to "never" (-1) would clamp into a one-second

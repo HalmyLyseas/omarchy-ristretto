@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import Quickshell.Wayland
 import "Model.js" as Model
 
 // Suspend the machine a chosen delay after an IDLE lock.
@@ -60,11 +61,20 @@ Item {
   // announcement's lock) drops it. Failing to arm on a real idle lock is
   // acceptable; suspending a deliberate lock is not.
   //
-  // Accepted risk: lastEvent is a free-form log mirror; this leans on the
-  // exact host wording of two adjacent events. A host rewording would
-  // disable the feature silently; the wording-independent replacement,
-  // should that happen, is a plugin-owned IdleMonitor consulted at the
-  // locked rising edge.
+  // Even a confirmed spawn cannot claim the locked edge, though: locked is
+  // one shared property, and while the idle-spawned lock is in flight a
+  // manual lock can win the race to raise it. The latch is therefore only
+  // an ELIGIBILITY gate. Origin is decided at the edge itself, by
+  // originMonitor below: an idle-originated lock fires after minutes with
+  // no input (the shortest lock stop is 2 minutes), while a manual lock IS
+  // input -- the user cannot press Super+Escape and be idle. If input was
+  // seen inside the monitor's window, whoever raised the edge, the user is
+  // present and the countdown must not arm.
+  //
+  // Accepted risk: lastEvent is a free-form log mirror; the eligibility
+  // gate leans on the exact host wording of two adjacent events. A host
+  // rewording would disable the feature silently -- but never arm a manual
+  // lock, because the origin check does not depend on wording.
   //
   // A lock-system event that lands while the session is ALREADY manually
   // locked sets the latch but never arms, because locked has no rising edge
@@ -110,6 +120,61 @@ Item {
         log("idle lock, but sleep delay is never -- not arming")
         return
       }
+      originSettle.restart()
+      log("idle-eligible lock landed -- verifying origin")
+    } else {
+      // Log unconditionally: a clean unlock after the timer already fired left
+      // no trace at all, so there was no way to confirm the latch cleared.
+      log(suspendTimer.running ? "unlocked -- countdown cancelled"
+                               : "unlocked -- latch cleared")
+      originSettle.stop()
+      suspendTimer.stop()
+      root.idleLockPending = false
+    }
+  }
+
+  // The last word on origin: no input recently means idle-originated. Raw
+  // input, not inhibitor-filtered -- an inhibitor blocks idling, not the
+  // user's hands, and origin is about hands. The timeout must sit well
+  // under the shortest idle-lock delay (2 minutes) and comfortably above
+  // event jitter; at a genuine idle lock isIdle has been true for minutes,
+  // while the keypress behind a manual lock resets it instantly. Always
+  // enabled: constructed-enabled bindings survive the host restart bug
+  // that kills enable-after-load monitors, and if the binding ever fails
+  // anyway, isIdle stays false and the service refuses to arm -- fails
+  // safe, and the refusal is logged.
+  IdleMonitor {
+    id: originMonitor
+    enabled: true
+    timeout: 30
+    respectInhibitors: false
+  }
+
+  // Probe seam: scenario tests replace this with a stub, because real
+  // compositor idle state cannot be scripted. Production never assigns it.
+  property var originIdleSource: originMonitor
+
+  // Judged a beat after the edge, not at it: the resume event from the
+  // keypress behind a manual lock reaches this binding over the Wayland
+  // socket, while the lock itself arrives via keybind dispatch, process
+  // spawn, and IPC. The socket path is faster in practice, but the settle
+  // removes the ordering assumption; the delay is noise against a
+  // minutes-scale suspend timer.
+  Timer {
+    id: originSettle
+    interval: 1000
+    repeat: false
+    onTriggered: {
+      if (!root.locked || !root.idleLockPending) return
+      if (!(root.originIdleSource && root.originIdleSource.isIdle === true)) {
+        root.idleLockPending = false
+        log("input seen at the lock edge -- treating as manual, not arming")
+        return
+      }
+      if (!root.armable) {
+        log("origin verified, but sleep delay is never -- not arming")
+        return
+      }
       // The interval is assigned here, not bound: a live binding on a
       // running Timer restarts the countdown on any config change, and a
       // change to "never" (-1) would clamp to a one-second fuse instead of
@@ -117,13 +182,6 @@ Item {
       suspendTimer.interval = root.sleepSeconds * 1000
       suspendTimer.restart()
       log("armed: suspend in " + root.sleepSeconds + "s" + (root.dryRun ? " (dry run)" : ""))
-    } else {
-      // Log unconditionally: a clean unlock after the timer already fired left
-      // no trace at all, so there was no way to confirm the latch cleared.
-      log(suspendTimer.running ? "unlocked -- countdown cancelled"
-                               : "unlocked -- latch cleared")
-      suspendTimer.stop()
-      root.idleLockPending = false
     }
   }
 
