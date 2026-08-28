@@ -79,13 +79,18 @@ via `shell.serviceFor("halmylyseas.ristretto")`.
   (the shell runs `inotifywait -r` over `~/.config/omarchy/plugins/`), which
   tears down and rebuilds every plugin widget — the visible bar flash.
   `.git/` is exempt, so commits are quiet; doc edits are not.
-- **Shell restarts silently kill `omarchy.idle`'s idle monitor** (and
-  idle-delay config writes appear able to as well): no screensaver, no
-  lock, nothing from this plugin, while `omarchy-shell idle status` looks
-  perfectly healthy. Revive it with `omarchy toggle idle stay-awake`, wait
-  a few seconds, `omarchy toggle idle allow-idle` — the pause matters,
-  because the CLI only touches a flag file the service watches
-  asynchronously, and a rapid create+delete loses the delete.
+- **Shell restarts used to silently kill `omarchy.idle`'s idle monitor**
+  (no screensaver, no lock, nothing from this plugin, while
+  `omarchy-shell idle status` looked perfectly healthy). **Fixed as of
+  omarchy 4.0.1 + Quickshell 0.3.1** — verified by a live restart-then-
+  idle reproduction with no workaround applied; the fix arrived with the
+  quickshell-git → 0.3.1 release swap. On older stacks, revive with
+  `omarchy toggle idle stay-awake`, wait a few seconds, `omarchy toggle
+  idle allow-idle` — the pause matters, because the CLI only touches a
+  flag file the service watches asynchronously, and a rapid
+  create+delete loses the delete. When idle looks dead, also rule out a
+  real inhibitor first: `hyprctl clients -j | grep inhibitingIdle` — a
+  browser playing video legitimately blocks idling.
 - **Never pass Nerd-Font PUA glyphs through a bash heredoc or an
   exact-match edit tool** — they are silently stripped or fail to match.
   Write such files with a Unicode-safe writer.
