@@ -126,12 +126,20 @@ via `shell.serviceFor("halmylyseas.ristretto")`.
   on any failure.
 - `Model.js` opens with `.pragma library` (QML-only syntax) so it can be
   shared read-only across every QML importer -- Node can't parse that line.
-  The test loader reads the file as text, strips just the pragma line, and
-  runs the rest in a fresh `vm` context, then reads the top-level functions
-  back off it; the file on disk is never touched. This only keeps working if
-  `Model.js` stays pure ES5 with no Quickshell imports and no syntax beyond
-  the pragma that Node's parser rejects -- the day it needs one, the loader
-  needs a matching strip.
+  The test loader reads the file as text, checks line 1 is exactly that
+  pragma (throwing a clear error rather than loading quietly if it's missing
+  or edited), swaps it in place for a `"use strict";` directive (matching
+  QML's own ban on implicit globals, without shifting any later line
+  number), and runs the result in a fresh `vm` context, then reads the
+  top-level functions back off it; the file on disk is never touched. The
+  loader also runs a regex-based tripwire over the comment-stripped source
+  for arrow functions, template literals, `let`/`const`/`async`/`class`, and
+  spread/rest -- Node parses all of that but the QML engine's ES5 baseline
+  does not, so it would pass here and break in the shell. This is a
+  heuristic for the common cases, not a real parser: `Model.js` must stay
+  pure ES5 with no Quickshell imports and no syntax beyond the pragma that
+  Node's parser rejects -- the day it needs more, the loader needs updating
+  to match.
 - Set `dryRun: true` first; every timing path then proves itself in the
   journal with nothing at stake:
 

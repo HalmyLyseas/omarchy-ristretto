@@ -104,9 +104,12 @@ share the name "the repo":
   loads and what `omarchy plugin validate` checks; the plugin marketplace
   validates an exact commit here.
 - **The project directory**, `~/git/omarchy-ristretto/`, holds `exchange/`
-  (scoping docs, local scratch — gitignored, never shipped), `plugin` (a
-  symlink to the canonical installed folder, for quick navigation), and
-  `work/` (a plain clone of the canonical repo).
+  (scoping docs, local scratch, never shipped — the project directory itself
+  is not a git worktree, so nothing there is actually gitignored; the
+  canonical repo's own `/exchange/` entry is just a guard against a stray
+  copy ending up in a checkout), `plugin` (a symlink to the canonical
+  installed folder, for quick navigation), and `work/` (a plain clone of the
+  canonical repo).
 - **`work/` is where development happens.** Edit and commit there, then
   deploy in one burst: `git -C ~/.config/omarchy/plugins/halmylyseas.ristretto
   pull ~/git/omarchy-ristretto/work master`. Never save files directly under
