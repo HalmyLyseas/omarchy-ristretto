@@ -1,8 +1,10 @@
 # Staging/communication layer -- scoping documents, mockups, icon sources.
-# Not part of the plugin. This repository doubles as the installed plugin
-# folder (omarchy plugin add clones straight into
+# Not part of the plugin. Lives in the project directory
+# (~/git/omarchy-ristretto/exchange/), not here -- this repository doubles as
+# the installed plugin folder (omarchy plugin add clones straight into
 # ~/.config/omarchy/plugins/<id>/), so everything tracked here is copied onto
-# every user's machine. Design notes and editable art stay local.
+# every user's machine. This entry is a guard against a stray exchange/
+# ending up in this tree, not an active staging location.
 /exchange/
 
 # editor / OS scratch

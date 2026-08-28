@@ -122,7 +122,8 @@ delays are Omarchy's own and are left as you set them.
 ## Developing
 
 Design decisions, host-API traps, and the testing workflow are in
-[docs/developers.md](docs/developers.md).
+[docs/developers.md](docs/developers.md). `./test/all` runs the unit suite
+over `Model.js` with plain Node -- no Quickshell or live session required.
 
 ## Licence
 

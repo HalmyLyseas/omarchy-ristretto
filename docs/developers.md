@@ -119,6 +119,19 @@ via `shell.serviceFor("halmylyseas.ristretto")`.
 
 ## Testing
 
+- `./test/all` runs the unit suite: pure-logic coverage of `Model.js` (stop
+  tables, the clamp, snapping, keyboard steps, the config-entry lookups) with
+  plain Node and `assert` -- no framework, no Quickshell, no live session.
+  `node test/model.test.js` runs the same suite directly. Both exit non-zero
+  on any failure.
+- `Model.js` opens with `.pragma library` (QML-only syntax) so it can be
+  shared read-only across every QML importer -- Node can't parse that line.
+  The test loader reads the file as text, strips just the pragma line, and
+  runs the rest in a fresh `vm` context, then reads the top-level functions
+  back off it; the file on disk is never touched. This only keeps working if
+  `Model.js` stays pure ES5 with no Quickshell imports and no syntax beyond
+  the pragma that Node's parser rejects -- the day it needs one, the loader
+  needs a matching strip.
 - Set `dryRun: true` first; every timing path then proves itself in the
   journal with nothing at stake:
 

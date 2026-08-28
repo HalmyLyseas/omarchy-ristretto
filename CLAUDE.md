@@ -4,16 +4,19 @@ An Omarchy shell plugin that gives the user direct control over power-saver
 behaviour: **when the screensaver starts, when the screen locks, and when the
 machine suspends.**
 
-This file is the project charter. `exchange/` is gitignored local scratch —
-the scoping documents, mockups, and icon sources this design rests on. When
-it is present, read the **highest-numbered** `exchange/NNN-*.md` first (it
-is the current state and supersedes the older ones), then
-`001-initial-scope.md` and `002-actions-plan.md` for the measured facts and
-the original plan. When it is not — a fresh clone — this file, the README,
-and `docs/developers.md` (the distilled design record and workflow traps,
-shipped with every clone) are enough to build, install, and maintain the
-plugin: the `001` / `002` citations below are corroboration for claims
-already stated here, never instructions to go and read something absent.
+This file is the project charter. `exchange/` is local scratch — the scoping
+documents, mockups, and icon sources this design rests on — and now lives in
+the project directory, `~/git/omarchy-ristretto/exchange/`, not in this
+(installed) folder; see "Repository layout" below. When it is present, read
+the **highest-numbered** `exchange/NNN-*.md` first (it is the current state
+and supersedes the older ones), then `001-initial-scope.md` and
+`002-actions-plan.md` for the measured facts and the original plan. When it
+is not — a fresh clone of this folder, without the sibling project
+directory — this file, the README, and `docs/developers.md` (the distilled
+design record and workflow traps, shipped with every clone) are enough to
+build, install, and maintain the plugin: the `001` / `002` citations below
+are corroboration for claims already stated here, never instructions to go
+and read something absent.
 
 ## The outcome this project must achieve
 
@@ -91,11 +94,34 @@ There is also a machine-specific `navi-omarchy` skill and a stock `omarchy`
 skill available to the agent. Read both before touching Hyprland config or
 anything needing root.
 
+### Repository layout
+
+This mirrors the halmylyseas.github-status project layout. Three things
+share the name "the repo":
+
+- **The canonical repo is the installed folder**,
+  `~/.config/omarchy/plugins/halmylyseas.ristretto/`. This is what the shell
+  loads and what `omarchy plugin validate` checks; the plugin marketplace
+  validates an exact commit here.
+- **The project directory**, `~/git/omarchy-ristretto/`, holds `exchange/`
+  (scoping docs, local scratch — gitignored, never shipped), `plugin` (a
+  symlink to the canonical installed folder, for quick navigation), and
+  `work/` (a plain clone of the canonical repo).
+- **`work/` is where development happens.** Edit and commit there, then
+  deploy in one burst: `git -C ~/.config/omarchy/plugins/halmylyseas.ristretto
+  pull ~/git/omarchy-ristretto/work master`. Never save files directly under
+  the installed folder while iterating — the shell watches it with
+  `inotifywait -r` and every save tears down and rebuilds the live bar, so
+  edit in `work/` and land the whole change in a single pull instead of one
+  file at a time.
+
 ## Working agreement
 
 - **`exchange/` is the handoff log.** Numbered markdown documents
   (`001-...`, `002-...`) carrying findings, decisions, and rationale between
-  sessions and between agents. Write for a reader with zero context: absolute
+  sessions and between agents. It lives in the project directory
+  (`~/git/omarchy-ristretto/exchange/`), not inside the canonical repo — see
+  "Repository layout" above. Write for a reader with zero context: absolute
   paths, file:line references, exact commands, and the evidence behind each
   claim. When a session produces a durable finding or a decision, it belongs in
   a new numbered document rather than only in chat.
