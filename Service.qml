@@ -4,16 +4,9 @@ import Quickshell.Io
 import Quickshell.Wayland
 import "Model.js" as Model
 
-// Suspend the machine a chosen delay after an IDLE lock.
-//
-// Omarchy has no suspend-on-idle of any kind -- logind's IdleAction never
-// fires here because nothing publishes Wayland idle state to logind, so the
-// only workable place for this is plugin-side.
-//
-// A fresh install can never change what the machine does: the delay
-// defaults to "never", so the timer is never armed until the user picks a
-// value. dryRun (config-only, off by default) is a testing valve that
-// replaces the real suspend with a log line and a notification.
+// Suspends the machine a chosen delay after an idle lock -- the shell is
+// the only workable layer, since logind's IdleAction never fires with
+// nothing publishing Wayland idle state to it. See docs/developers.md.
 Item {
   id: root
 
@@ -52,51 +45,9 @@ Item {
   readonly property bool _debugOriginSettleRunning: originSettle.running
   readonly property bool _debugLatchExpiryRunning: latchExpiry.running
 
-  // True once an idle-driven lock attempt is confirmed in flight and until
-  // the session unlocks again. This latch is the whole trick.
-  //
-  // Neither obvious discriminator works. lockRequested is set by beginLock()
-  // for EVERY lock, manual ones included, so it carries no origin. And
-  // idledThisCycle is already false by the time the lock lands, because
-  // lockSystem() clears it before spawning omarchy-system-lock -- binding
-  // "locked && idledThisCycle" never arms, and fails silently.
-  //
-  // lastEvent works: lockSystem() is called from exactly two places, both
-  // idle-driven -- the lock timer, and the immediate branch that runs when
-  // the derived lock delay is zero. Nothing else in the service ever emits
-  // it, so a manual Super+Escape cannot set this.
-  //
-  // The announcement alone is not enough. lockSystem() logs "lock-system"
-  // BEFORE it spawns the lock process, and that spawn can be skipped or
-  // fail -- an announcement with no lock behind it must never survive to
-  // claim a manual lock the user makes moments later. So the latch is
-  // two-step: "lock-system" only marks an announcement, and the very next
-  // event -- emitted synchronously by the same lockSystem() call, one QML
-  // change signal per assignment -- resolves it. "process-start: lock"
-  // confirms a spawn and sets the latch; anything else ("process-skip: lock"
-  // included -- a stale, possibly hung earlier process is not this
-  // announcement's lock) drops it. Failing to arm on a real idle lock is
-  // acceptable; suspending a deliberate lock is not.
-  //
-  // Even a confirmed spawn cannot claim the locked edge, though: locked is
-  // one shared property, and while the idle-spawned lock is in flight a
-  // manual lock can win the race to raise it. The latch is therefore only
-  // an ELIGIBILITY gate. Origin is decided at the edge itself, by
-  // originMonitor below: an idle-originated lock fires after minutes with
-  // no input (the shortest lock stop is 2 minutes), while a manual lock IS
-  // input -- the user cannot press Super+Escape and be idle. If input was
-  // seen inside the monitor's window, whoever raised the edge, the user is
-  // present and the countdown must not arm.
-  //
-  // Accepted risk: lastEvent is a free-form log mirror; the eligibility
-  // gate leans on the exact host wording of two adjacent events. A host
-  // rewording would disable the feature silently -- but never arm a manual
-  // lock, because the origin check does not depend on wording.
-  //
-  // A lock-system event that lands while the session is ALREADY manually
-  // locked sets the latch but never arms, because locked has no rising edge
-  // left to fire on. That is intended, not incidental: the session was locked
-  // by the user's own hand, and a deliberate lock never leads to suspend.
+  // True once an idle-driven lock is confirmed in flight, until the session
+  // unlocks again -- this latch is the whole eligibility check for arming
+  // suspend. See docs/developers.md ("A manual lock never leads to suspend").
   property bool idleLockPending: false
   property bool idleLockAnnounced: false
 
@@ -169,16 +120,9 @@ Item {
     log("idle-eligible lock secured -- verifying origin")
   }
 
-  // The last word on origin: no input recently means idle-originated. Raw
-  // input, not inhibitor-filtered -- an inhibitor blocks idling, not the
-  // user's hands, and origin is about hands. The timeout must sit well
-  // under the shortest idle-lock delay (2 minutes) and comfortably above
-  // event jitter; at a genuine idle lock isIdle has been true for minutes,
-  // while the keypress behind a manual lock resets it instantly. Always
-  // enabled: constructed-enabled bindings survive the host restart bug
-  // that kills enable-after-load monitors, and if the binding ever fails
-  // anyway, isIdle stays false and the service refuses to arm -- fails
-  // safe, and the refusal is logged.
+  // Origin check: recent raw input means the lock was not idle-driven, so
+  // respectInhibitors is false (an inhibitor blocks idling, not hands).
+  // Always enabled and fail-safe if the binding ever breaks -- see docs/developers.md.
   IdleMonitor {
     id: originMonitor
     enabled: true
@@ -190,12 +134,9 @@ Item {
   // compositor idle state cannot be scripted. Production never assigns it.
   property var originIdleSource: originMonitor
 
-  // Judged a beat after the edge, not at it: the resume event from the
-  // keypress behind a manual lock reaches this binding over the Wayland
-  // socket, while the lock itself arrives via keybind dispatch, process
-  // spawn, and IPC. The socket path is faster in practice, but the settle
-  // removes the ordering assumption; the delay is noise against a
-  // minutes-scale suspend timer.
+  // Judged a beat after the edge, not at it, since the resume event behind
+  // a manual lock's own keypress can still be in flight when the lock
+  // itself lands. Detail: docs/developers.md.
   Timer {
     id: originSettle
     interval: 1000
@@ -216,10 +157,9 @@ Item {
         log("origin verified, but sleep delay is never -- not arming")
         return
       }
-      // The interval is assigned here, not bound: a live binding on a
-      // running Timer restarts the countdown on any config change, and a
-      // change to "never" (-1) would clamp to a one-second fuse instead of
-      // the cancellation the edit meant.
+      // Interval is assigned here, not bound: a live binding on a running
+      // Timer restarts the countdown on any config change, and "never"
+      // (-1) would clamp into a one-second fuse instead of a cancellation.
       suspendTimer.interval = root.sleepSeconds * 1000
       suspendTimer.restart()
       log("armed: suspend in " + root.sleepSeconds + "s" + (root.dryRun ? " (dry run)" : ""))
@@ -232,12 +172,9 @@ Item {
     onTriggered: root.suspend()
   }
 
-  // Even a confirmed spawn can die without the exit handler firing (a
-  // killed shell, a hung script) -- in which case locked never rises and
-  // nothing else would ever clear the latch. omarchy-system-lock requests
-  // the lock over IPC into this same shell process, so a real lock lands
-  // within a second; if none has after this window, the attempt is dead
-  // and a later manual lock must not inherit it.
+  // Backstop for a spawn that dies silently: a real lock lands within a
+  // second over IPC, so if none has after this window the attempt is dead
+  // and a later manual lock must not inherit its latch.
   Timer {
     id: latchExpiry
     interval: 3000
@@ -539,12 +476,8 @@ Item {
   }
 
   // ------------------------------------------------------- the screensaver flag
-  //
-  // The screensaver-off flag has no QML reader anywhere in Omarchy, so this
-  // service owns the machine's one watcher for it and panels bind. The
-  // pattern is the host's own stay-awake watcher: an exit-code probe, and a
-  // reload of the directory watch after every probe so it attaches once
-  // possible (a FileView cannot attach to a path that does not exist yet).
+  // No QML reader exists for this flag anywhere in Omarchy: this service
+  // owns the one watcher (an exit-code probe, reloaded on directory change).
 
   property bool screensaverOff: false
   property bool screensaverDesiredOff: false
@@ -556,11 +489,9 @@ Item {
     root._armProcess("probe")
   }
 
-  // The switch's write path. Optimistic so the switch answers instantly;
-  // the probe corrects it if the write fails. A flip arriving while the
-  // writer is still running is reconciled on exit rather than lost -- a
-  // Process ignores running=true while already running, so a rapid second
-  // click would otherwise silently never land.
+  // Optimistic write: the switch answers instantly, and the probe corrects
+  // it if the write fails. A flip mid-write is reconciled on exit, not
+  // lost -- a Process ignores running=true while already running.
   function setScreensaverOff(off) {
     root.screensaverDesiredOff = off === true
     root.screensaverOff = root.screensaverDesiredOff
@@ -605,14 +536,9 @@ Item {
   FileView {
     id: togglesWatch
     path: root.home + "/.local/state/omarchy/toggles"
-    // Watch-only, so content must never load: a preloading FileView reads
-    // whatever the path holds with no byte ceiling, and this path is
-    // user-writable state -- replaced by or symlinked to a large regular
-    // file, it would be read whole into shell memory. The change watcher
-    // attaches on path alone, and reload() with preload off re-attaches
-    // the watch without reading (verified against Quickshell 0.3.0 source
-    // and probed live: three directory events delivered, a 512M file left
-    // unread through reload()).
+    // Watch-only: preload stays false, so a large or symlinked file at
+    // this user-writable path is never read into shell memory --
+    // reload() re-attaches the watch without reading it. See docs/threat-model.md.
     preload: false
     watchChanges: true
     printErrors: false
@@ -939,12 +865,9 @@ Item {
     }
   }
 
-  // Config is reactive, so these confirm what the service is actually acting
-  // on rather than what it read once at startup.
-  // Derive from sleepSeconds directly rather than reading `armable`: a
-  // property derived from the one that changed has not necessarily
-  // re-evaluated yet when its change handler runs, so `armable` here can still
-  // hold the previous value and print "-1s" instead of "never".
+  // Reads sleepSeconds directly rather than `armable`: a property derived
+  // from the one that just changed may not have re-evaluated yet inside
+  // this handler, so `armable` could still print the previous value.
   onSleepSecondsChanged: {
     // A delay change while a countdown runs means "not that countdown":
     // cancel rather than guess. The next idle lock arms with the new value.
@@ -996,13 +919,9 @@ Item {
     }
   }
 
-  // The host accepts plain-string bar-layout entries ("some.id"), renders
-  // them fine, but can neither read settings from nor write settings into
-  // one -- updateEntryInline matches only object entries. The feature then
-  // fails safe but silently; one delayed check gives it a voice. Delayed,
-  // because at startup shellConfig briefly holds built-in defaults with no
-  // plugin entries at all.
-  // Plain, not readonly: a probe shortens this wait; production never does.
+  // A string-form bar-layout entry ("some.id") has no object for
+  // updateEntryInline to read/write, so settings silently never persist;
+  // this delayed check gives that failure a voice. Plain: a probe shortens the wait.
   property int configEntryCheckMs: 15000
 
   Timer {

@@ -290,8 +290,7 @@ ShellRoot {
       fireProcessStartLock()
       lockStub.pendingSessionLock = true
       lockStub.locked = true
-      // pendingSessionLock is never cleared -- the A1 case: requested but
-      // never secured.
+      // pendingSessionLock is never cleared -- requested but never secured.
       after(2000, finishNow)
     })
   }

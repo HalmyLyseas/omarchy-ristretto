@@ -3,11 +3,9 @@ import qs.Commons
 import qs.Ui
 import "Model.js" as Model
 
-// The control panel: every control is live and reachable from the keyboard.
-// The delay sliders write shell.json's idle keys, both switches drive the
-// native state they mirror, and the sleep slider stores the delay the
-// service arms on an idle lock. The hero subtitle carries the armed
-// behaviour -- the one thing the controls below do not show at a glance.
+// The control panel: every control is live and keyboard-reachable. The
+// delay sliders write shell.json's idle keys; the switches drive the
+// native state they mirror; the hero subtitle states the armed behaviour.
 Panel {
   id: root
 
@@ -26,11 +24,9 @@ Panel {
 
   readonly property var shell: bar && bar.shell ? bar.shell : null
 
-  // The delays displayed are the ones omarchy.idle actually acts on: its
-  // derived timeout properties, not a re-parse of shell.json. The service
-  // owns the parsing rules (0 is valid and means "immediately"; negatives
-  // fall back to its defaults), so binding it keeps this panel honest even
-  // if those rules change.
+  // The displayed delays are omarchy.idle's own derived timeout properties,
+  // never a re-parse of shell.json -- the host owns the parsing rules (0
+  // means "immediately"; negatives fall back to its defaults).
   readonly property int screensaverSeconds:
     idleService ? Number(idleService.screensaverTimeoutSeconds) : 150
   readonly property int lockSeconds:
@@ -63,10 +59,9 @@ Panel {
   readonly property bool screensaverOff: ristrettoService ? ristrettoService.screensaverOff === true : false
   readonly property bool screensaverEnabled: !screensaverOff
 
-  // What the machine will actually do, for the hero subtitle. Composed from
-  // the same bindings as the controls, so it can never disagree with them.
-  // Kept short deliberately: the hero meta gets the width left over after the
-  // stay-awake control, about two dozen caption characters before it elides.
+  // What the machine will actually do, composed from the same bindings as
+  // the controls so it can never disagree with them. Kept short: the hero
+  // meta gets only the width left over after the stay-awake control.
   readonly property string heroStatus: {
     if (stayAwake) return "staying awake"
     return sleepSeconds > 0 ? "sleep " + Model.sleepLabel(sleepSeconds, true) + " after lock"
@@ -74,11 +69,8 @@ Panel {
   }
 
   // ------------------------------------------------------ keyboard cursor
-  //
-  // Same state machine as the first-party Display panel: a section cursor
-  // driven by PanelKeyCatcher, revealed by the first arrow key, and kept in
-  // sync with the mouse through hover. Up/Down walk the sections; Left/Right
-  // nudge a slider or move along the sleep row; Space/Enter activate.
+  // The same state machine as the first-party Display panel: a section
+  // cursor revealed by the first arrow key and synced with mouse hover.
 
   property bool cursorActive: false
   property string focusSection: "stayawake"
@@ -90,10 +82,9 @@ Panel {
     focusSection = sections[Math.max(0, Math.min(sections.length - 1, i + dy))]
   }
 
-  // Steps are computed from the ACTUAL stored value, not the snapped index:
-  // an off-scale 2.5 minutes steps down to 2 rather than skipping to 1, and
-  // a legacy above-scale sleep value cannot jump to "never" from a single
-  // "make it longer" keystroke.
+  // Steps come from the actual stored value, not the snapped index -- an
+  // off-scale 2.5 minutes steps down to 2, not 1, and a legacy above-scale
+  // sleep value cannot jump to "never" from a single keystroke.
   function moveCursorH(dx) {
     if (focusSection === "ssdelay") {
       var s = Model.stepFrom(Model.SCREENSAVER_STOPS, root.screensaverSeconds / 60, dx)
@@ -119,10 +110,9 @@ Panel {
 
   // -------------------------------------------------------------- writes
 
-  // Write only the keys named in the patch: the untouched delay keeps
-  // whatever the user (or their hand-edited config) holds, even off-scale
-  // values this panel can only approximate. omarchy.idle binds its timeouts
-  // reactively, so a write re-arms the cycle with no restart.
+  // Writes only the keys named in the patch, so the untouched delay keeps
+  // whatever value it already held. omarchy.idle binds its timeouts
+  // reactively, so the write re-arms the cycle with no restart.
   function writeIdle(patch) {
     var host = root.shell
     if (!host || typeof host.mutateShellConfig !== "function") return
@@ -151,11 +141,9 @@ Panel {
     writeIdle(patch)
   }
 
-  // The service owns the flag file and its persistence, so hand the decision
-  // over rather than touching ~/.local/state directly. setIdleEnabled(true)
-  // means "allow idle", i.e. stay-awake off -- so passing the *current*
-  // stayAwake value flips it. Same call the first-party StayAwake indicator
-  // makes, which is why the two controls can never disagree.
+  // Hands the decision to the service rather than touching state directly.
+  // setIdleEnabled(true) means "allow idle" (stay-awake off), so passing
+  // the current stayAwake value flips it -- same call the first-party control makes.
   function toggleStayAwake() {
     if (idleService && typeof idleService.setIdleEnabled === "function")
       idleService.setIdleEnabled(root.stayAwake)
@@ -168,10 +156,9 @@ Panel {
       ristrettoService.setScreensaverOff(!enabled)
   }
 
-  // updateEntryInline replaces the entry with { id } plus what it is handed,
-  // so merge onto the current settings or every sibling key is dropped --
-  // including dryRun, which is the guard standing between a bug and the
-  // machine actually suspending.
+  // updateEntryInline replaces the whole entry with what it is handed, so
+  // merge onto current settings first or every sibling key is dropped --
+  // dryRun included, the one guard between a bug and a real suspend.
   function commitSleep(seconds) {
     var host = root.shell
     if (!host || typeof host.updateEntryInline !== "function") return

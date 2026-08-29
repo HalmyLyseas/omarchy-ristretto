@@ -1,20 +1,6 @@
-// test/model.test.js -- plain-assert Node tests over Model.js. No framework.
-// Run: node test/model.test.js -- exits 0 on success, 1 on any failure.
-//
-// Model.js begins with `.pragma library` (line 1) so it can be shared,
-// read-only, across every QML importer that needs the stop tables and the
-// clamp -- that pragma is deliberate and must not be removed or edited to
-// make it "testable". Node's parser chokes on `.pragma`, which is QML-only
-// syntax, so this file never `require()`s Model.js directly. Instead the
-// loader below reads the file as text, verifies line 1 is exactly the
-// pragma it expects to strip (a missing/edited pragma throws instead of
-// silently loading), runs a heuristic ES5 tripwire over the rest, then
-// swaps just that first line for a `"use strict";` directive -- same
-// position, so every later line keeps its original number in stack traces
-// -- and runs the result in a fresh `vm` context via `vm.runInContext`,
-// reading the top-level functions/vars back off that context object. The
-// production file on disk is never touched -- byte-identical to what QML
-// loads.
+// test/model.test.js -- plain-assert Node tests over Model.js. Run:
+// node test/model.test.js (exits 0/1). Model.js is `.pragma library` QML,
+// so this loads it through a strip-and-eval shim; see docs/developers.md ("Testing").
 "use strict"
 
 var assert = require("assert")
@@ -22,11 +8,9 @@ var fs = require("fs")
 var path = require("path")
 var vm = require("vm")
 
-// Beyond-ES5 syntax Node parses happily but the QML engine's JS baseline
-// does not -- a heuristic tripwire for the common cases, not a real parser.
-// Comments are stripped first (crudely, by regex) so a mention inside a
-// comment (e.g. the word "constant") can't trip it; the authoritative
-// constraint on what Model.js may use is documented in docs/developers.md.
+// Beyond-ES5 syntax Node parses fine but the QML engine's baseline does
+// not -- a heuristic, not a real parser. Comments are stripped first, so
+// a mention inside one can't trip it; see docs/developers.md.
 var ES5_TRIPWIRES = [
   ["arrow function (=>)", /=>/],
   ["template literal (`)", /`/],
@@ -78,12 +62,9 @@ function loadModel() {
 
 var Model = loadModel()
 
-// Objects and arrays built inside the vm sandbox belong to a different
-// realm, so their prototype is not Node's own Object.prototype/Array.prototype
-// -- assert.deepStrictEqual treats that as "not reference-equal" even when
-// every property/element matches. Everything compared this way is plain
-// data (strings/numbers/booleans, or arrays of them), so a JSON round-trip
-// is a safe, cheap way to rehome it into this realm before comparing.
+// vm-sandbox objects/arrays have a different realm's prototype, so
+// assert.deepStrictEqual sees them as unequal even when every value
+// matches. A JSON round-trip rehomes plain data into this realm first.
 function toPlainObject(value) {
   return JSON.parse(JSON.stringify(value))
 }
@@ -104,10 +85,9 @@ function test(name, fn) {
 
 // ------------------------------------------------------------ table invariants
 
-// The invariant tests below (strictly increasing, min/max relationships)
-// derive their expectations from the arrays under test, so a curated-value
-// edit that preserves ordering would pass silently. Pin the exact curated
-// values too.
+// These invariants derive their expectations from the arrays under test,
+// so a curated-value edit that preserves ordering passes silently -- the
+// next test pins the exact curated values too.
 test("SCREENSAVER_STOPS, LOCK_STOPS, SLEEP_STOPS are pinned to their exact curated values", function () {
   assert.deepStrictEqual(toPlainObject(Model.SCREENSAVER_STOPS), [1, 2, 3, 5, 10, 15])
   assert.deepStrictEqual(toPlainObject(Model.LOCK_STOPS), [2, 3, 5, 10, 15, 30])
@@ -231,10 +211,9 @@ test("sleepIndexFor: the 'never' stop can NEVER be returned for a positive value
 // ------------------------------------------------------- lockIndexAbove / screensaverIndexBelow
 
 test("lockIndexAbove: an already-satisfying current index is returned unchanged", function () {
-  // screensaver 2, lock already at index 4 (value 15) -- 15 > 2, satisfied.
-  // Index 4 is deliberately NOT the first stop above 2 (that's index 1,
-  // value 3) -- an implementation that ignores currentLockIndex and always
-  // returns the first qualifying stop would return 1 here, not 4.
+  // screensaver 2, lock already at index 4 (15) -- satisfied and unchanged.
+  // Index 4 is deliberately not the first stop above 2 (index 1, value 3),
+  // so an implementation ignoring currentLockIndex would return 1, not 4.
   assert.strictEqual(Model.lockIndexAbove(2, 4), 4)
 })
 
@@ -246,11 +225,9 @@ test("lockIndexAbove: equal values are NOT accepted -- lock must move strictly a
 })
 
 test("screensaverIndexBelow: an already-satisfying current index is returned unchanged", function () {
-  // lock 30, screensaver already at index 1 (value 2) -- 2 < 30, satisfied.
-  // Index 1 is deliberately NOT the first stop a top-down scan would find
-  // (that's index 5, value 15) -- an implementation that ignores
-  // currentScreensaverIndex and always returns the highest qualifying stop
-  // would return 5 here, not 1.
+  // lock 30, screensaver already at index 1 (2) -- satisfied and unchanged.
+  // Index 1 is deliberately not what a top-down scan would find (index 5,
+  // 15), so ignoring currentScreensaverIndex would return 5, not 1.
   assert.strictEqual(Model.screensaverIndexBelow(30, 1), 1)
 })
 

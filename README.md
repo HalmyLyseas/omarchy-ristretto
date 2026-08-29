@@ -10,8 +10,8 @@ Omarchy has no suspend-on-idle of any kind — under a Wayland compositor,
 logind's `IdleAction` never fires because nothing publishes idle state to it.
 Ristretto adds it at the only workable layer, the shell: a delay that starts
 counting when the session locks *because you went idle*, and suspends the
-machine when it runs out. A lock you asked for yourself (`Super+Escape`)
-never leads to suspend.
+machine when it runs out. A lock you trigger yourself — a keybinding, the
+menu, or `omarchy lock` — never leads to suspend.
 
 ## What it does
 
@@ -40,11 +40,11 @@ stay in sync with their CLI equivalents in both directions.
 Everything Ristretto needs ships with Omarchy itself — there are no
 third-party dependencies.
 
-- **Omarchy 4.0 or later.** The plugin binds the first-party `omarchy.idle`
-  and `omarchy.lock` shell services and builds its UI from the shell's own
-  component kit, all measured against 4.0.0. If either service is disabled,
-  Ristretto degrades gracefully: the panel still renders and the suspend
-  timer simply never arms.
+- **Omarchy 4.0.1 or later (Quickshell 0.3.1).** The plugin binds the
+  first-party `omarchy.idle` and `omarchy.lock` shell services and builds
+  its UI from the shell's own component kit. If either service is
+  disabled, Ristretto degrades gracefully: the panel still renders and the
+  suspend timer simply never arms.
 - **systemd-logind** for the suspend itself — `systemctl suspend` from the
   active session, no root and no polkit prompt.
 
@@ -94,8 +94,8 @@ Ristretto's own settings live in its bar-layout entry in the same file:
 
 | Key | Default | Meaning |
 |---|---|---|
-| `sleepAfterIdleLock` | `-1` | Seconds between an idle lock and suspend; `-1` means never. |
-| `dryRun` | `false` | When `true`, replaces the real suspend with a journal line and a notification, and the panel shows a `DRY RUN` badge. Config-only; meant for testing timing without suspending the machine. |
+| `sleepAfterIdleLock` | `-1` | Seconds between an idle lock and suspend. Accepted range is 60 seconds to 24 hours (86400); anything below 60 or non-numeric means never, and anything above 24 hours is clamped down to it. `-1` (or any value under 60) means never. |
+| `dryRun` | `false` | When set to `true` (accepted spellings: `true`, `"true"`, `1`, `"1"`), replaces the real suspend with a journal line and a notification, and the panel shows a `DRY RUN` badge. Every other value, including an unset key, means off. Config-only; meant for testing timing without suspending the machine. |
 
 ```bash
 # set a value from the CLI
@@ -119,11 +119,21 @@ removing) splices the plugin's entry out of `shell.json`, so its settings —
 the sleep delay included — do not survive a disable/enable cycle; the `idle`
 delays are Omarchy's own and are left as you set them.
 
+## Verify
+
+```bash
+bash test/all               # unit, host-contract, hygiene, sinks, and both qs probes
+omarchy plugin validate .    # manifest + security-baseline checks
+```
+
+`bash test/all`'s unit and hygiene suites need only plain Node; the two
+`qs`-driven probes and the host-contract check skip themselves cleanly
+when there's no live shell tree or Quickshell session to run against.
+
 ## Developing
 
 Design decisions, host-API traps, and the testing workflow are in
-[docs/developers.md](docs/developers.md). `./test/all` runs the unit suite
-over `Model.js` with plain Node -- no Quickshell or live session required.
+[docs/developers.md](docs/developers.md).
 
 ## Licence
 

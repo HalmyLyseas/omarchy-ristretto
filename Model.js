@@ -1,9 +1,8 @@
 .pragma library
 
-// Curated stops, in minutes. LOCK is always kept strictly above SCREENSAVER
-// (see clampPair), so the two sets are deliberately asymmetric: SCREENSAVER
-// starts one notch lower and LOCK reaches one notch higher, which is what
-// makes a strict clamp reachable at both ends.
+// Curated stops, in minutes. LOCK stays strictly above SCREENSAVER, which
+// lockIndexAbove/screensaverIndexBelow enforce, so the two arrays are
+// asymmetric at both ends to make that clamp always reachable.
 var SCREENSAVER_STOPS = [1, 2, 3, 5, 10, 15]
 var LOCK_STOPS = [2, 3, 5, 10, 15, 30]
 
@@ -17,6 +16,10 @@ var SLEEP_NEVER = -1
 // garbage read as seconds must never survive a multiply-by-1000 that
 // wraps the interval negative.
 var SLEEP_MAX_SECONDS = 86400
+
+// The lowest Omarchy version this plugin is tested against; test/host-contract.mjs
+// checks the installed package meets it. Bump only after testing live.
+var SUPPORTED_OMARCHY_MIN = "4.0.1"
 
 // Nearest stop to an arbitrary value. Omarchy's defaults (screensaver 150s =
 // 2.5min) do not sit on our scale, so the panel snaps the *display* without
@@ -38,40 +41,26 @@ function minutesLabel(minutes) {
   return minutes + (minutes === 1 ? " minute" : " minutes")
 }
 
-// One formatter for a sleep value so the slider caption and the hero can
-// never disagree. The short form is for the hero's width budget and also
-// renders legacy off-scale values (a config written before the scale
-// changed) faithfully in seconds.
+// One formatter for a sleep value, so the slider caption and the hero can
+// never disagree; the short form fits the hero's width budget and renders
+// an off-scale legacy value faithfully in seconds.
 function sleepLabel(seconds, short) {
   if (!(seconds > 0)) return "never"
   if (short) return seconds % 60 === 0 ? (seconds / 60) + " min" : seconds + "s"
   return minutesLabel(seconds / 60)
 }
 
-// Which stop the slider should sit on for an arbitrary stored value: the
-// nearest positive stop, or the "never" stop for -1. Off-scale values snap
-// the display only -- nothing is written until the user moves the slider.
-// One nearest-stop algorithm in this file, not two: the positive stops are
-// exactly the array minus its "never" tail.
+// The stop the slider should sit on for an arbitrary stored value: the
+// nearest positive stop, or the last ("never") stop for -1. Reuses
+// nearestIndex on the positive stops alone -- the array minus its tail.
 function sleepIndexFor(seconds) {
   if (!(seconds > 0)) return SLEEP_STOPS.length - 1
   return nearestIndex(SLEEP_STOPS.slice(0, -1), seconds)
 }
 
 // --------------------------------------------------------------- the clamp
-//
-// LOCK must sit STRICTLY above SCREENSAVER. Equal values are not merely
-// redundant, they are broken: omarchy.idle derives both stage delays from
-// min(screensaver, lock), so equal values make both 0 and startIdleCycle
-// launches the screensaver and fires the lock in the same pass. The
-// screensaver's "skip if already locked" guard is a subprocess that runs
-// before the lock has even been requested, so it passes and the screensaver
-// flashes up underneath the lock.
-//
-// Both directions always land on a real stop, which is why the two scales are
-// asymmetric: SCREENSAVER's maximum (15) is below LOCK's maximum (30), so
-// there is always a lock above; LOCK's minimum (2) is above SCREENSAVER's
-// minimum (1), so there is always a screensaver below.
+// LOCK must sit strictly above SCREENSAVER: equal values make omarchy.idle
+// derive both stage delays as 0. Detail: docs/developers.md.
 
 function lockIndexAbove(screensaverMinutes, currentLockIndex) {
   if (LOCK_STOPS[currentLockIndex] > screensaverMinutes) return currentLockIndex
@@ -89,11 +78,9 @@ function screensaverIndexBelow(lockMinutes, currentScreensaverIndex) {
   return 0
 }
 
-// One keyboard step from the ACTUAL stored value, not from its snapped
-// index: a stored 2.5 minutes must step down to 2, not skip to 1, and a
-// legacy 15-minute sleep must step up to "never" only from above the top
-// stop, not because its display happened to snap there. Returns an index
-// into stops, or -1 when there is no stop in that direction.
+// One keyboard step from the actual stored value, not its snapped index --
+// a stored 2.5 must step down to 2, not skip to 1. Returns an index into
+// stops, or -1 when there is no stop in that direction.
 function stepFrom(stops, value, direction) {
   if (direction > 0) {
     for (var i = 0; i < stops.length; i++) if (stops[i] > value) return i
@@ -140,10 +127,8 @@ function normalizeDryRun(raw) {
 }
 
 // ------------------------------------------------------- own settings entry
-//
-// The shell injects `settings` into widgets and panels, but a service gets
-// only `shell`, so it has to find its own entry in shellConfig. The entry
-// lives in the bar layout for a bar-widget plugin and in plugins[] otherwise.
+// A service gets only `shell`, not an injected `settings`, so it looks up
+// its own entry: the bar layout for a bar-widget plugin, else plugins[].
 
 // A hostile non-array "length" (e.g. 2e9) in place of one of these
 // collections is refused: Array.isArray runs before the length is trusted.

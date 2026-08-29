@@ -3,10 +3,8 @@ import QtQuick.Shapes
 import qs.Commons
 
 // The ristretto mark: a tapered demitasse with two steam curls, drawn as a
-// Shape so it takes whatever foreground colour its host hands it -- the same
-// approach as the first-party DropboxIcon. Coordinates are transcribed from
-// a 24x24 design grid and scaled to the item's actual size, so the mark works
-// both in the bar's icon canvas (which force-sizes it) and at hero size.
+// Shape so it takes whatever foreground colour its host hands it -- the
+// same approach as the first-party DropboxIcon. Scaled from a 24x24 grid.
 Item {
   id: root
 

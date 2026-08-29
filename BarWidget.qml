@@ -3,9 +3,8 @@ import qs.Commons
 import qs.Ui
 
 // Bar entry point. Owns the button and hosts the panel through an eagerly
-// active Loader -- the first-party pattern (clock, weather). The panel is
-// NOT deferred: it is built once per monitor at bar startup, so keep panel
-// startup work light and machine-wide watchers in the service.
+// active Loader -- the first-party pattern (clock, weather) -- built once
+// per monitor at startup, so keep startup work light and watchers in the service.
 BarWidget {
   id: root
   moduleName: "halmylyseas.ristretto"
