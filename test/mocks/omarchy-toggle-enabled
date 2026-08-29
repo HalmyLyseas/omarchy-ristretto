@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# test/mocks/omarchy-toggle-enabled -- mock probe half of the toggle pair.
+# Exit 0 means the flag file exists, exit 1 means it doesn't. Argv: "<flag>".
+set -uo pipefail
+
+TOGGLES_DIR="$HOME/.local/state/omarchy/toggles"
+MODE="${RISTRETTO_MOCK_TOGGLE_ENABLED_MODE:-ok}"
+if [[ -n "${RISTRETTO_MOCK_TOGGLE_ENABLED_MODE_FILE:-}" && -s "${RISTRETTO_MOCK_TOGGLE_ENABLED_MODE_FILE}" ]]; then
+  MODE="$(cat "$RISTRETTO_MOCK_TOGGLE_ENABLED_MODE_FILE")"
+fi
+
+if [[ -n "${RISTRETTO_MOCK_LOG:-}" ]]; then
+  echo "PID=$$ ARGV: omarchy-toggle-enabled $*" >> "$RISTRETTO_MOCK_LOG"
+fi
+
+[[ "$MODE" == "hang" ]] && exec sleep 600
+[[ "$MODE" == "fail" ]] && exit 1
+
+flag="${1:-}"
+[[ -f "$TOGGLES_DIR/$flag" ]] && exit 0
+exit 1

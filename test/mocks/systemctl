@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# test/mocks/systemctl -- NEVER suspends anything. Records the invocation
+# and exits 0 ("fail" mode exits 1), so a suspend attempt is assertable.
+set -uo pipefail
+
+MODE="${RISTRETTO_MOCK_SYSTEMCTL_MODE:-ok}"
+
+if [[ -n "${RISTRETTO_MOCK_LOG:-}" ]]; then
+  echo "PID=$$ ARGV: systemctl $*" >> "$RISTRETTO_MOCK_LOG"
+fi
+
+[[ "$MODE" == "hang" ]] && exec sleep 600
+[[ "$MODE" == "fail" ]] && exit 1
+exit 0

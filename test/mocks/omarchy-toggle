@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# test/mocks/omarchy-toggle -- PATH-shadowing mock. Writes or clears a flag
+# file under $HOME/.local/state/omarchy/toggles/. Argv: "<flag> on|off".
+set -uo pipefail
+
+TOGGLES_DIR="$HOME/.local/state/omarchy/toggles"
+MODE="${RISTRETTO_MOCK_TOGGLE_MODE:-ok}"
+if [[ -n "${RISTRETTO_MOCK_TOGGLE_MODE_FILE:-}" && -s "${RISTRETTO_MOCK_TOGGLE_MODE_FILE}" ]]; then
+  MODE="$(cat "$RISTRETTO_MOCK_TOGGLE_MODE_FILE")"
+fi
+
+if [[ -n "${RISTRETTO_MOCK_LOG:-}" ]]; then
+  echo "PID=$$ ARGV: omarchy-toggle $*" >> "$RISTRETTO_MOCK_LOG"
+fi
+
+[[ "$MODE" == "hang" ]] && exec sleep 600
+[[ "$MODE" == "fail" ]] && exit 1
+
+flag="${1:-}"
+action="${2:-}"
+mkdir -p "$TOGGLES_DIR"
+if [[ "$action" == "on" ]]; then
+  touch "$TOGGLES_DIR/$flag"
+else
+  rm -f "$TOGGLES_DIR/$flag"
+fi
+exit 0

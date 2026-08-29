@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# test/mocks/omarchy-notification-send -- records the dry-run notification
+# Ristretto sends instead of a real suspend. Never shows anything on screen.
+set -uo pipefail
+
+MODE="${RISTRETTO_MOCK_NOTIFY_MODE:-ok}"
+
+if [[ -n "${RISTRETTO_MOCK_LOG:-}" ]]; then
+  echo "PID=$$ ARGV: omarchy-notification-send $*" >> "$RISTRETTO_MOCK_LOG"
+fi
+
+[[ "$MODE" == "hang" ]] && exec sleep 600
+[[ "$MODE" == "fail" ]] && exit 1
+exit 0

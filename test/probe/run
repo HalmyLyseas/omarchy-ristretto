@@ -1,0 +1,438 @@
+#!/usr/bin/env bash
+# test/probe/run -- drives the real Service.qml through its idle-lock/
+# secure-lock/suspend state matrix under `qs -n -p`. Skips without `qs`.
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PLUGIN_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+MOCKS="$PLUGIN_DIR/test/mocks"
+OUT_DIR="$(mktemp -d)"
+trap 'rm -rf "$OUT_DIR"' EXIT
+
+fail_count=0
+pass_count=0
+ok() { pass_count=$((pass_count + 1)); echo "ok - $1"; }
+not_ok() { fail_count=$((fail_count + 1)); echo "NOT OK - $1"; }
+
+if ! command -v qs >/dev/null 2>&1; then
+  echo "test/probe/run: no \`qs\` on PATH (no Wayland session?) -- skipping service probe suite"
+  exit 0
+fi
+
+json_line() { grep -o 'PROBE_RESULT .*' "$1" | tail -n1 | sed 's/^PROBE_RESULT //'; }
+
+field() {
+  node -e '
+    try {
+      const data = JSON.parse(process.argv[1]);
+      const parts = process.argv[2].split(".");
+      let v = data;
+      for (const p of parts) { if (v === null || v === undefined) break; v = v[p]; }
+      process.stdout.write(v === undefined || v === null ? "" : String(v));
+    } catch (e) { process.stdout.write(""); }
+  ' "$1" "$2"
+}
+
+# arrfield JSON arrayName index field -- reads sleepNormChecks[index].field.
+arrfield() {
+  node -e '
+    try {
+      const data = JSON.parse(process.argv[1]);
+      const arr = data[process.argv[2]] || [];
+      const v = (arr[Number(process.argv[3])] || {})[process.argv[4]];
+      process.stdout.write(v === undefined || v === null ? "" : String(v));
+    } catch (e) { process.stdout.write(""); }
+  ' "$1" "$2" "$3" "$4"
+}
+
+# A dead-but-unreaped mock lingers as zombie "Z" where no init reaps it --
+# state is what counts, not kill -0.
+alive() {
+  local pid="$1" state
+  state="$(awk '{print $3}' "/proc/$pid/stat" 2>/dev/null)" || return 1
+  [[ -n "$state" && "$state" != "Z" && "$state" != "X" ]]
+}
+settled_alive() {
+  local pid="$1" i
+  for i in 1 2 3 4 5 6 7 8 9 10; do
+    alive "$pid" || return 1
+    sleep 0.2
+  done
+  return 0
+}
+check_no_orphans() {
+  local mocklog="$1" label="$2"
+  local pids leaked=0
+  pids="$(grep -oP '^PID=\K[0-9]+' "$mocklog" 2>/dev/null | sort -u)"
+  for pid in $pids; do
+    if settled_alive "$pid"; then
+      leaked=1
+      kill -TERM "$pid" 2>/dev/null || true
+      sleep 0.2
+      alive "$pid" && kill -9 "$pid" 2>/dev/null || true
+      echo "  orphan: PID $pid was still alive after qs exited (killed by test/probe/run)"
+    fi
+  done
+  if [[ $leaked -eq 1 ]]; then
+    not_ok "$label: no orphaned mock process left behind"
+  else
+    ok "$label: no orphaned mock process left behind"
+  fi
+}
+check_exit_status() {
+  local label="$1" code
+  code="$(cat "$OUT_DIR/$label.exit" 2>/dev/null || echo "")"
+  [[ "$code" == "0" ]] && ok "$label: qs exited 0 (not a crash/timeout, got $code)" \
+    || not_ok "$label: qs exited 0 (not a crash/timeout, got exit code: ${code:-unknown})"
+}
+# A missing stub/engine error prints TypeError/ReferenceError, or a QML load
+# failure prints "ERROR:" -- match the colon so driver noise (VK_ERROR_...)
+# doesn't count.
+check_no_engine_errors() {
+  local log="$1" label="$2"
+  local count
+  count="$(grep -c 'TypeError\|ReferenceError\|ERROR:' "$log" 2>/dev/null || true)"
+  if [[ "${count:-0}" -eq 0 ]]; then
+    ok "$label: 0 TypeError/ReferenceError/QML load ERROR in the log"
+  else
+    not_ok "$label: 0 TypeError/ReferenceError/QML load ERROR in the log (got $count)"
+    grep 'TypeError\|ReferenceError\|ERROR:' "$log" | head -5 | sed 's/^/    /'
+  fi
+}
+check_log_contains() {
+  local log="$1" pattern="$2" label="$3"
+  grep -qF "$pattern" "$log" && ok "$label" || not_ok "$label (missing: $pattern)"
+}
+check_log_not_contains() {
+  local log="$1" pattern="$2" label="$3"
+  grep -qF "$pattern" "$log" && not_ok "$label (found unexpected: $pattern)" || ok "$label"
+}
+mock_call_count() {
+  local n
+  n="$(grep -cF "$2" "$1" 2>/dev/null)"
+  echo "${n:-0}"
+}
+
+# Every scenario gets its own isolated $HOME + PATH-shadow linkdir; the
+# outer PATH also carries /usr/bin for the mocks' own mkdir/touch/rm/cat.
+# .bash_profile pins the login shell (bash -lc "type -P ...") to linkdir alone.
+setup_scenario_env() {
+  local label="$1" with_toggle_links="$2"
+  local home="$OUT_DIR/$label-home"
+  local linkdir="$OUT_DIR/$label-link"
+  mkdir -p "$home" "$linkdir"
+  ln -sfn "$MOCKS/omarchy-notification-send" "$linkdir/omarchy-notification-send"
+  ln -sfn "$MOCKS/systemctl" "$linkdir/systemctl"
+  if [[ "$with_toggle_links" == "yes" ]]; then
+    ln -sfn "$MOCKS/omarchy-toggle" "$linkdir/omarchy-toggle"
+    ln -sfn "$MOCKS/omarchy-toggle-enabled" "$linkdir/omarchy-toggle-enabled"
+  fi
+  printf 'PATH="%s"\n' "$linkdir" > "$home/.bash_profile"
+}
+
+run_scenario() {
+  local label="$1"
+  local home="$OUT_DIR/$label-home"
+  local linkdir="$OUT_DIR/$label-link"
+  local log="$OUT_DIR/$label.log"
+  local mocklog="$OUT_DIR/$label.mock.log"
+  : > "$mocklog"
+  env RISTRETTO_MOCK_LOG="$mocklog" RISTRETTO_PLUGIN_DIR="$PLUGIN_DIR" RISTRETTO_SCENARIO="$label" \
+    RISTRETTO_TOGGLE_MODE_FILE="$OUT_DIR/$label.toggle.mode" \
+    RISTRETTO_MOCK_TOGGLE_MODE_FILE="$OUT_DIR/$label.toggle.mode" \
+    RISTRETTO_TOGGLE_ENABLED_MODE_FILE="$OUT_DIR/$label.toggle-enabled.mode" \
+    RISTRETTO_MOCK_TOGGLE_ENABLED_MODE_FILE="$OUT_DIR/$label.toggle-enabled.mode" \
+    RISTRETTO_TOGGLE_LINK="$linkdir/omarchy-toggle" \
+    RISTRETTO_TOGGLE_ENABLED_LINK="$linkdir/omarchy-toggle-enabled" \
+    RISTRETTO_TOGGLE_MOCK="$MOCKS/omarchy-toggle" \
+    RISTRETTO_TOGGLE_ENABLED_MOCK="$MOCKS/omarchy-toggle-enabled" \
+    HOME="$home" PATH="$linkdir:/usr/bin:/bin" \
+    timeout 28 qs -n -p "$PLUGIN_DIR/test/probe/service-probe.qml" > "$log" 2>&1
+  echo "$?" > "$OUT_DIR/$label.exit"
+}
+
+run_common_checks() {
+  local label="$1"
+  check_exit_status "$label"
+  check_no_engine_errors "$OUT_DIR/$label.log" "$label"
+  check_no_orphans "$OUT_DIR/$label.mock.log" "$label"
+}
+
+# get_json is a pure one-liner (safe inside $(...)); the ok/not_ok report
+# runs separately in the main shell, so its counters survive -- calling
+# ok/not_ok inside a command substitution loses them to that subshell.
+get_json() { json_line "$OUT_DIR/$1.log"; }
+report_json_line() {
+  local label="$1" json="$2"
+  if [[ -z "$json" ]]; then
+    not_ok "$label: probe printed a PROBE_RESULT line"
+    cat "$OUT_DIR/$label.log"
+    return 1
+  fi
+  ok "$label: probe printed a PROBE_RESULT line"
+  return 0
+}
+
+echo "== 1: idle lock -> secure -> origin idle -> armed -> fires -> systemctl suspend recorded once =="
+setup_scenario_env armed-fire yes
+run_scenario armed-fire
+json="$(get_json armed-fire)"
+report_json_line armed-fire "$json"
+[[ -n "$json" ]] && {
+  [[ "$(field "$json" suspendTimerRunning)" == "false" ]] && ok "armed-fire: countdown finished (not still running)" \
+    || not_ok "armed-fire: countdown finished (still running)"
+  n="$(mock_call_count "$OUT_DIR/armed-fire.mock.log" "ARGV: systemctl suspend")"
+  [[ "$n" == "1" ]] && ok "armed-fire: systemctl suspend recorded exactly once" \
+    || not_ok "armed-fire: systemctl suspend recorded exactly once (got $n)"
+}
+check_log_contains "$OUT_DIR/armed-fire.log" "ristretto suspending" "armed-fire: 'suspending' logged"
+run_common_checks armed-fire
+
+echo
+echo "== 2: dryRun -> notification mock recorded, systemctl NOT called =="
+setup_scenario_env dryrun-fire yes
+run_scenario dryrun-fire
+json="$(get_json dryrun-fire)"
+report_json_line dryrun-fire "$json"
+[[ -n "$json" ]] && {
+  n="$(mock_call_count "$OUT_DIR/dryrun-fire.mock.log" "ARGV: systemctl suspend")"
+  [[ "$n" == "0" ]] && ok "dryrun-fire: systemctl never called" || not_ok "dryrun-fire: systemctl never called (got $n)"
+  n2="$(mock_call_count "$OUT_DIR/dryrun-fire.mock.log" "ARGV: omarchy-notification-send")"
+  [[ "${n2:-0}" -ge 1 ]] && ok "dryrun-fire: notification mock recorded" || not_ok "dryrun-fire: notification mock recorded (got $n2)"
+}
+check_log_contains "$OUT_DIR/dryrun-fire.log" "DRY RUN -- would suspend now" "dryrun-fire: 'DRY RUN' logged"
+run_common_checks dryrun-fire
+
+echo
+echo "== 3: manual lock (originIdleSource.isIdle=false) -> treating as manual =="
+setup_scenario_env manual-lock yes
+run_scenario manual-lock
+json="$(get_json manual-lock)"
+report_json_line manual-lock "$json"
+[[ -n "$json" ]] && {
+  [[ "$(field "$json" idleLockPending)" == "false" ]] && ok "manual-lock: idleLockPending cleared" \
+    || not_ok "manual-lock: idleLockPending cleared"
+  n="$(mock_call_count "$OUT_DIR/manual-lock.mock.log" "ARGV: systemctl suspend")"
+  [[ "$n" == "0" ]] && ok "manual-lock: systemctl never called" || not_ok "manual-lock: systemctl never called (got $n)"
+}
+check_log_contains "$OUT_DIR/manual-lock.log" "treating as manual, not arming" "manual-lock: 'treating as manual' logged"
+run_common_checks manual-lock
+
+echo
+echo "== 4: lock-system with no process-start -> not latching =="
+setup_scenario_env lock-no-spawn yes
+run_scenario lock-no-spawn
+json="$(get_json lock-no-spawn)"
+report_json_line lock-no-spawn "$json"
+[[ -n "$json" ]] && {
+  [[ "$(field "$json" idleLockPending)" == "false" ]] && ok "lock-no-spawn: idleLockPending never set" \
+    || not_ok "lock-no-spawn: idleLockPending never set"
+}
+check_log_contains "$OUT_DIR/lock-no-spawn.log" "not latching" "lock-no-spawn: 'not latching' logged"
+run_common_checks lock-no-spawn
+
+echo
+echo "== 5: process-exit: lock before locked -> latch dropped =="
+setup_scenario_env spawn-exit-before-lock yes
+run_scenario spawn-exit-before-lock
+json="$(get_json spawn-exit-before-lock)"
+report_json_line spawn-exit-before-lock "$json"
+[[ -n "$json" ]] && {
+  [[ "$(field "$json" idleLockPending)" == "false" ]] && ok "spawn-exit-before-lock: idleLockPending cleared" \
+    || not_ok "spawn-exit-before-lock: idleLockPending cleared"
+}
+check_log_contains "$OUT_DIR/spawn-exit-before-lock.log" "process exited without locking -- latch dropped" \
+  "spawn-exit-before-lock: exit-before-lock message logged"
+run_common_checks spawn-exit-before-lock
+
+echo
+echo "== 6: latch expiry (nothing locks in 3s) =="
+setup_scenario_env latch-expiry yes
+run_scenario latch-expiry
+json="$(get_json latch-expiry)"
+report_json_line latch-expiry "$json"
+[[ -n "$json" ]] && {
+  [[ "$(field "$json" idleLockPending)" == "false" ]] && ok "latch-expiry: idleLockPending cleared" \
+    || not_ok "latch-expiry: idleLockPending cleared"
+}
+check_log_contains "$OUT_DIR/latch-expiry.log" "announced but nothing locked -- latch dropped" \
+  "latch-expiry: expiry message logged"
+run_common_checks latch-expiry
+
+echo
+echo "== 7: locked but pendingSessionLock stays true -> never arms (A1) =="
+setup_scenario_env never-secure yes
+run_scenario never-secure
+json="$(get_json never-secure)"
+report_json_line never-secure "$json"
+[[ -n "$json" ]] && {
+  [[ "$(field "$json" secureLocked)" == "false" ]] && ok "never-secure: secureLocked stays false" \
+    || not_ok "never-secure: secureLocked stays false"
+  n="$(mock_call_count "$OUT_DIR/never-secure.mock.log" "ARGV: systemctl suspend")"
+  [[ "$n" == "0" ]] && ok "never-secure: systemctl never called" || not_ok "never-secure: systemctl never called (got $n)"
+}
+check_log_contains "$OUT_DIR/never-secure.log" "lock requested but not secure -- waiting" \
+  "never-secure: waiting message logged"
+check_log_not_contains "$OUT_DIR/never-secure.log" "armed: suspend" "never-secure: never logged 'armed:'"
+run_common_checks never-secure
+
+echo
+echo "== 8: unlock mid-countdown -> cancelled; systemctl never called =="
+setup_scenario_env unlock-mid-countdown yes
+run_scenario unlock-mid-countdown
+json="$(get_json unlock-mid-countdown)"
+report_json_line unlock-mid-countdown "$json"
+[[ -n "$json" ]] && {
+  [[ "$(field "$json" suspendTimerRunning)" == "false" ]] && ok "unlock-mid-countdown: countdown stopped" \
+    || not_ok "unlock-mid-countdown: countdown stopped"
+  n="$(mock_call_count "$OUT_DIR/unlock-mid-countdown.mock.log" "ARGV: systemctl suspend")"
+  [[ "$n" == "0" ]] && ok "unlock-mid-countdown: systemctl never called" \
+    || not_ok "unlock-mid-countdown: systemctl never called (got $n)"
+}
+check_log_contains "$OUT_DIR/unlock-mid-countdown.log" "unlocked -- countdown cancelled" \
+  "unlock-mid-countdown: cancellation logged"
+run_common_checks unlock-mid-countdown
+
+echo
+echo "== 9: sleep delay change mid-countdown -> cancelled =="
+setup_scenario_env delay-change-mid-countdown yes
+run_scenario delay-change-mid-countdown
+json="$(get_json delay-change-mid-countdown)"
+report_json_line delay-change-mid-countdown "$json"
+[[ -n "$json" ]] && {
+  [[ "$(field "$json" suspendTimerRunning)" == "false" ]] && ok "delay-change-mid-countdown: countdown stopped" \
+    || not_ok "delay-change-mid-countdown: countdown stopped"
+}
+check_log_contains "$OUT_DIR/delay-change-mid-countdown.log" "sleep delay changed while counting down -- countdown cancelled" \
+  "delay-change-mid-countdown: cancellation logged"
+run_common_checks delay-change-mid-countdown
+
+echo
+echo "== 10: stay-awake during settle -> cancelled (A4); stay-awake at fire -> ignored =="
+setup_scenario_env stayawake-settle-and-fire yes
+run_scenario stayawake-settle-and-fire
+json="$(get_json stayawake-settle-and-fire)"
+report_json_line stayawake-settle-and-fire "$json"
+[[ -n "$json" ]] && {
+  n="$(mock_call_count "$OUT_DIR/stayawake-settle-and-fire.mock.log" "ARGV: systemctl suspend")"
+  [[ "$n" == "0" ]] && ok "stayawake-settle-and-fire: systemctl never called" \
+    || not_ok "stayawake-settle-and-fire: systemctl never called (got $n)"
+}
+check_log_contains "$OUT_DIR/stayawake-settle-and-fire.log" "stay-awake enabled -- countdown cancelled" \
+  "stayawake-settle-and-fire: settle-time cancellation logged"
+check_log_contains "$OUT_DIR/stayawake-settle-and-fire.log" "fired but stay-awake is on -- ignoring" \
+  "stayawake-settle-and-fire: fire-time refusal logged"
+run_common_checks stayawake-settle-and-fire
+
+echo
+echo "== 11: idle service removed (stub returns null) mid-countdown -> cancelled (A5) =="
+setup_scenario_env idle-service-lost yes
+run_scenario idle-service-lost
+json="$(get_json idle-service-lost)"
+report_json_line idle-service-lost "$json"
+[[ -n "$json" ]] && {
+  [[ "$(field "$json" idleLockPending)" == "false" ]] && ok "idle-service-lost: idleLockPending cleared" \
+    || not_ok "idle-service-lost: idleLockPending cleared"
+  [[ "$(field "$json" suspendTimerRunning)" == "false" ]] && ok "idle-service-lost: countdown stopped" \
+    || not_ok "idle-service-lost: countdown stopped"
+  n="$(mock_call_count "$OUT_DIR/idle-service-lost.mock.log" "ARGV: systemctl suspend")"
+  [[ "$n" == "0" ]] && ok "idle-service-lost: systemctl never called" \
+    || not_ok "idle-service-lost: systemctl never called (got $n)"
+}
+check_log_contains "$OUT_DIR/idle-service-lost.log" "omarchy.idle service lost -- countdown cancelled, latch cleared" \
+  "idle-service-lost: loss message logged"
+run_common_checks idle-service-lost
+
+echo
+echo "== 12: sleepAfterIdleLock = 4294968 / true / \"300\" / 5 -> normalized per Model.js =="
+setup_scenario_env sleep-normalize yes
+run_scenario sleep-normalize
+json="$(get_json sleep-normalize)"
+report_json_line sleep-normalize "$json"
+[[ -n "$json" ]] && {
+  s0="$(arrfield "$json" sleepNormChecks 0 seconds)"
+  [[ "$s0" == "86400" ]] && ok "sleep-normalize: 4294968 clamps to 86400" || not_ok "sleep-normalize: 4294968 clamps to 86400 (got $s0)"
+  s1="$(arrfield "$json" sleepNormChecks 1 seconds)"
+  [[ "$s1" == "-1" ]] && ok "sleep-normalize: true (Number(true)=1, below floor) -> -1 (never)" \
+    || not_ok "sleep-normalize: true -> -1 (got $s1)"
+  s2="$(arrfield "$json" sleepNormChecks 2 seconds)"
+  [[ "$s2" == "300" ]] && ok "sleep-normalize: numeric string \"300\" -> 300" || not_ok "sleep-normalize: \"300\" -> 300 (got $s2)"
+  s3="$(arrfield "$json" sleepNormChecks 3 seconds)"
+  [[ "$s3" == "-1" ]] && ok "sleep-normalize: 5 (below the 60s floor) -> -1 (never)" \
+    || not_ok "sleep-normalize: 5 -> -1 (got $s3)"
+}
+check_log_contains "$OUT_DIR/sleep-normalize.log" "sleepAfterIdleLock exceeded the cap -- clamped to 86400s" \
+  "sleep-normalize: clamp logged"
+run_common_checks sleep-normalize
+
+echo
+echo "== 13: string-form config entry -> the 15s warning (shortened via configEntryCheckMs) =="
+setup_scenario_env string-entry-warning yes
+run_scenario string-entry-warning
+json="$(get_json string-entry-warning)"
+report_json_line string-entry-warning "$json" > /dev/null
+check_log_contains "$OUT_DIR/string-entry-warning.log" "no config entry found -- settings cannot persist" \
+  "string-entry-warning: warning logged"
+run_common_checks string-entry-warning
+
+echo
+echo "== 14: screensaver switch: rapid on->off->on -> final state matches; fail mode -> optimistic value corrected =="
+setup_scenario_env screensaver-reconcile yes
+run_scenario screensaver-reconcile
+json="$(get_json screensaver-reconcile)"
+report_json_line screensaver-reconcile "$json"
+[[ -n "$json" ]] && {
+  [[ "$(field "$json" reconcileMidState)" == "true" ]] && ok "screensaver-reconcile: settled to 'on' after the rapid flips" \
+    || not_ok "screensaver-reconcile: settled to 'on' after the rapid flips (got $(field "$json" reconcileMidState))"
+  [[ "$(field "$json" screensaverOff)" == "false" ]] && ok "screensaver-reconcile: probe fail mode corrected the optimistic value" \
+    || not_ok "screensaver-reconcile: probe fail mode corrected the optimistic value (got $(field "$json" screensaverOff))"
+  n="$(mock_call_count "$OUT_DIR/screensaver-reconcile.mock.log" "ARGV: omarchy-toggle screensaver-off")"
+  [[ "${n:-0}" -ge 2 ]] && ok "screensaver-reconcile: mock log shows the reconciling writes ($n)" \
+    || not_ok "screensaver-reconcile: mock log shows the reconciling writes (got $n)"
+}
+run_common_checks screensaver-reconcile
+
+echo
+echo "== 15: omarchy-toggle hang -> watchdog TERM/KILL within the shortened deadline, no orphan, usable again =="
+setup_scenario_env toggle-hang yes
+run_scenario toggle-hang
+json="$(get_json toggle-hang)"
+report_json_line toggle-hang "$json"
+[[ -n "$json" ]] && {
+  fired="$(field "$json" writeWatchdogFiredCount)"
+  [[ "${fired:-0}" -ge 1 ]] && ok "toggle-hang: write watchdog fired ($fired)" || not_ok "toggle-hang: write watchdog fired (got $fired)"
+  n="$(mock_call_count "$OUT_DIR/toggle-hang.mock.log" "ARGV: omarchy-toggle screensaver-off off")"
+  [[ "${n:-0}" -ge 1 ]] && ok "toggle-hang: switch usable again after recovery" \
+    || not_ok "toggle-hang: switch usable again after recovery (got $n)"
+}
+run_common_checks toggle-hang
+
+echo
+echo "== 16: tools removed (resolution fails) -> logged, no crash, retry path =="
+setup_scenario_env tools-removed no
+run_scenario tools-removed
+json="$(get_json tools-removed)"
+report_json_line tools-removed "$json"
+[[ -n "$json" ]] && {
+  [[ "$(field "$json" toolsRemovedFirstAttempt.togglePath)" == "" ]] && ok "tools-removed: togglePath unresolved on first attempt" \
+    || not_ok "tools-removed: togglePath unresolved on first attempt"
+  [[ "$(field "$json" toolsRemovedFirstAttempt.toggleEnabledPath)" == "" ]] && ok "tools-removed: toggleEnabledPath unresolved on first attempt" \
+    || not_ok "tools-removed: toggleEnabledPath unresolved on first attempt"
+  [[ -n "$(field "$json" togglePath)" ]] && ok "tools-removed: togglePath resolved after the retry path ran" \
+    || not_ok "tools-removed: togglePath resolved after the retry path ran"
+  [[ -n "$(field "$json" toggleEnabledPath)" ]] && ok "tools-removed: toggleEnabledPath resolved after the retry path ran" \
+    || not_ok "tools-removed: toggleEnabledPath resolved after the retry path ran"
+}
+check_log_contains "$OUT_DIR/tools-removed.log" "omarchy-toggle not found on PATH -- screensaver switch stays disabled-safe" \
+  "tools-removed: toggle resolution failure logged"
+check_log_contains "$OUT_DIR/tools-removed.log" "omarchy-toggle-enabled not found on PATH -- screensaver flag unknown, defaulting off" \
+  "tools-removed: toggle-enabled resolution failure logged"
+run_common_checks tools-removed
+
+echo
+if [[ "$fail_count" -eq 0 ]]; then
+  echo "test/probe/run: ALL CHECKS PASSED ($pass_count ok)"
+else
+  echo "test/probe/run: $fail_count FAILURE(S), $pass_count ok"
+fi
+exit $(( fail_count > 0 ? 1 : 0 ))

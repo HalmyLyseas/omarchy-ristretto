@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# test/all -- runs every test suite in this repo: just the Node suite over
-# Model.js (ristretto has no scripts/ dir and no shell-script tests to run
-# alongside it). Exits non-zero if the suite fails.
+# test/all -- runs every test suite in this repo: the Node suite over
+# Model.js, and the qs-driven service probe (test/probe/run) over the real
+# Service.qml. The probe suite skips itself (exit 0) when `qs` is not on
+# PATH -- no Wayland session to run a real Quickshell instance against.
+# Exits non-zero if any suite fails.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -9,6 +11,11 @@ overall=0
 
 echo "== Model.js (node) =="
 node "$SCRIPT_DIR/model.test.js"
+if [[ $? -ne 0 ]]; then overall=1; fi
+
+echo
+echo "== Service.qml (qs probe) =="
+bash "$SCRIPT_DIR/probe/run"
 if [[ $? -ne 0 ]]; then overall=1; fi
 
 echo
