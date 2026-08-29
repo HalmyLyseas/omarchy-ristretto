@@ -117,7 +117,10 @@ Panel {
     var host = root.shell
     if (!host || typeof host.mutateShellConfig !== "function") return
     host.mutateShellConfig(function(config) {
-      if (!config.idle || typeof config.idle !== "object") config.idle = ({})
+      // An array is typeof "object" too, but a named property set on one
+      // (config.idle.screensaver = ...) vanishes under JSON serialization.
+      if (!config.idle || typeof config.idle !== "object" || Array.isArray(config.idle))
+        config.idle = ({})
       for (var key in patch) config.idle[key] = patch[key]
     })
   }

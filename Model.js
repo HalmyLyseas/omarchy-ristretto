@@ -108,15 +108,42 @@ function sleepStepFrom(seconds, direction) {
 // Raw config values are hand-editable JSON: a normalizer accepts only the
 // shapes it can act on safely and fails toward the harmless outcome.
 
-// Only a finite number (or numeric string) at or above minSeconds counts as
-// a real delay; everything else means "never". minSeconds is a parameter so
-// Service.qml's minSleepSeconds (60 in production) can lower it for a probe.
+// Only typeof "number", or a trimmed numeric string, is ever converted --
+// Number() alone accepts far more than that (an array like [300] coerces
+// to 300), which would let a JSON typo arm a real delay.
+function sleepRawToNumber(raw) {
+  if (typeof raw === "number") return raw
+  if (typeof raw === "string") {
+    var trimmed = raw.replace(/^\s+|\s+$/g, "")
+    return /^\d+(\.\d+)?$/.test(trimmed) ? Number(trimmed) : NaN
+  }
+  return NaN
+}
+
+// A finite number (or numeric string) at or above minSeconds is a real delay;
+// everything else means "never" (minSeconds lets a probe lower the 60s floor).
+// `rejected` flags a positive value that missed the floor, so a caller can log it.
 function normalizeSleepSeconds(raw, minSeconds) {
   var floor = minSeconds > 0 ? minSeconds : 60
-  var n = Number(raw)
-  if (!isFinite(n) || n < floor) return { seconds: SLEEP_NEVER, clamped: false }
+  var n = sleepRawToNumber(raw)
+  if (!isFinite(n) || n < floor) return { seconds: SLEEP_NEVER, clamped: false, rejected: isFinite(n) && n > 0 }
   var capped = Math.min(n, SLEEP_MAX_SECONDS)
-  return { seconds: capped, clamped: capped !== n }
+  return { seconds: capped, clamped: capped !== n, rejected: false }
+}
+
+// The last non-empty stdout line from a login-shell resolver, accepted only
+// if it is absolute and actually names the requested binary -- an earlier
+// line from a startup file (e.g. a wrong `.bash_profile` echo) is ignored.
+function pickResolvedPath(out, name) {
+  var lines = String(out || "").split("\n")
+  var line = ""
+  for (var i = lines.length - 1; i >= 0; i--) {
+    var trimmed = lines[i].replace(/^\s+|\s+$/g, "")
+    if (trimmed) { line = trimmed; break }
+  }
+  var suffix = "/" + name
+  if (line.charAt(0) !== "/" || line.slice(-suffix.length) !== suffix) return ""
+  return line
 }
 
 // Fail-safe direction: only an explicit truthy boolean/number/string means

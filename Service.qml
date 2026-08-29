@@ -44,6 +44,8 @@ Item {
   readonly property bool _debugSuspendTimerRunning: suspendTimer.running
   readonly property bool _debugOriginSettleRunning: originSettle.running
   readonly property bool _debugLatchExpiryRunning: latchExpiry.running
+  // Epoch ms, not int: a QML int overflows on a wall-clock timestamp.
+  property double _debugArmedAtMs: 0
 
   // True once an idle-driven lock is confirmed in flight, until the session
   // unlocks again -- this latch is the whole eligibility check for arming
@@ -147,7 +149,11 @@ Item {
         log("stay-awake enabled during origin settle -- not arming")
         return
       }
-      if (!root.locked || !root.secureLocked || !root.idleLockPending) return
+      if (!root.locked || !root.secureLocked || !root.idleLockPending) {
+        log("origin settle fired but eligibility already lost (" +
+            (!root.locked ? "unlocked" : (!root.secureLocked ? "insecure" : "latch cleared")) + ")")
+        return
+      }
       if (!(root.originIdleSource && root.originIdleSource.isIdle === true)) {
         root.idleLockPending = false
         log("input seen at the lock edge -- treating as manual, not arming")
@@ -162,6 +168,7 @@ Item {
       // (-1) would clamp into a one-second fuse instead of a cancellation.
       suspendTimer.interval = root.sleepSeconds * 1000
       suspendTimer.restart()
+      root._debugArmedAtMs = Date.now()
       log("armed: suspend in " + root.sleepSeconds + "s" + (root.dryRun ? " (dry run)" : ""))
     }
   }
@@ -348,16 +355,18 @@ Item {
     return kind === "suspend" ? root.suspendTimeoutMs : root.toolTimeoutMs
   }
 
-  // Bounded to outputCapChars total (stdout+stderr collected only for
-  // logging on failure, never parsed beyond the resolve kinds' first line).
-  // A breach caps the buffer and SIGTERMs the child.
+  // Bounded to outputCapChars total ACROSS stdout+stderr together (collected
+  // only for logging on failure, never parsed beyond the resolve kinds' first
+  // line). A breach caps the buffer and SIGTERMs the child.
   function _appendBoundedOutput(kind, line, errorStream) {
     var overflowKey = "_" + kind + "Overflowed"
     if (root[overflowKey]) return
     var key = errorStream ? ("_" + kind + "Err") : ("_" + kind + "Out")
+    var otherKey = errorStream ? ("_" + kind + "Out") : ("_" + kind + "Err")
     var next = root[key] + String(line || "") + "\n"
-    if (next.length > root.outputCapChars) {
-      next = next.slice(0, root.outputCapChars)
+    var budget = root.outputCapChars - root[otherKey].length
+    if (next.length > budget) {
+      next = next.slice(0, Math.max(0, budget))
       root[overflowKey] = true
     }
     root[key] = next
@@ -429,44 +438,67 @@ Item {
     root._armProcess("resolveToggleEnabled")
   }
 
+  property int _resolveToggleRetryCount: 0
+  property int _resolveToggleEnabledRetryCount: 0
+
   function handleResolveToggleExit(exitCode, out, err) {
     if (exitCode === 0) {
-      var resolved = String(out || "").split("\n")[0].replace(/^\s+|\s+$/g, "")
-      if (resolved && resolved.charAt(0) === "/") {
+      var resolved = Model.pickResolvedPath(out, "omarchy-toggle")
+      if (resolved) {
         root.togglePath = resolved
+        root._resolveToggleRetryCount = 0
         log("omarchy-toggle resolved at " + resolved)
         root.maybeWriteScreensaverFlag()
         return
       }
     }
-    log("omarchy-toggle not found on PATH -- screensaver switch stays disabled-safe")
-    toolRetryTimer.restart()
+    if (root._resolveToggleRetryCount === 0)
+      log("omarchy-toggle not found on PATH -- screensaver switch stays disabled-safe")
+    if (root._resolveToggleRetryCount < 3) {
+      root._resolveToggleRetryCount = root._resolveToggleRetryCount + 1
+      toolRetryTimer.interval = root.toolRetryIntervalMs
+      toolRetryTimer.restart()
+    } else {
+      root._resolveToggleRetryCount = 4
+      log("omarchy-toggle: giving up after 3 retries")
+    }
   }
 
   function handleResolveToggleEnabledExit(exitCode, out, err) {
     if (exitCode === 0) {
-      var resolved = String(out || "").split("\n")[0].replace(/^\s+|\s+$/g, "")
-      if (resolved && resolved.charAt(0) === "/") {
+      var resolved = Model.pickResolvedPath(out, "omarchy-toggle-enabled")
+      if (resolved) {
         root.toggleEnabledPath = resolved
+        root._resolveToggleEnabledRetryCount = 0
         log("omarchy-toggle-enabled resolved at " + resolved)
         root.refreshScreensaverFlag()
         return
       }
     }
-    log("omarchy-toggle-enabled not found on PATH -- screensaver flag unknown, defaulting off")
-    toolRetryTimer.restart()
+    if (root._resolveToggleEnabledRetryCount === 0)
+      log("omarchy-toggle-enabled not found on PATH -- screensaver flag unknown, defaulting off")
+    if (root._resolveToggleEnabledRetryCount < 3) {
+      root._resolveToggleEnabledRetryCount = root._resolveToggleEnabledRetryCount + 1
+      toolRetryTimer.interval = root.toolRetryIntervalMs
+      toolRetryTimer.restart()
+    } else {
+      root._resolveToggleEnabledRetryCount = 4
+      log("omarchy-toggle-enabled: giving up after 3 retries")
+    }
   }
 
-  // One retry, 15s after the last resolution failure -- a session whose
-  // compositor environment lacked the omarchy bin directory at startup may
-  // still gain it shortly after.
+  // Plain, not readonly, so a probe can shorten it; production never does.
+  property int toolRetryIntervalMs: 15000
+
+  // Up to three retries after a resolution failure, toolRetryIntervalMs apart
+  // -- a session whose PATH lacked the omarchy bin directory at startup may
+  // gain it shortly after. Each tool's own count guards its half of this timer.
   Timer {
     id: toolRetryTimer
-    interval: 15000
     repeat: false
     onTriggered: {
-      if (!root.togglePath) root.resolveToggle()
-      if (!root.toggleEnabledPath) root.resolveToggleEnabled()
+      if (!root.togglePath && root._resolveToggleRetryCount <= 3) root.resolveToggle()
+      if (!root.toggleEnabledPath && root._resolveToggleEnabledRetryCount <= 3) root.resolveToggleEnabled()
     }
   }
 
@@ -481,6 +513,11 @@ Item {
 
   property bool screensaverOff: false
   property bool screensaverDesiredOff: false
+  // Set only by setScreensaverOff(): startup and reconnection must only ever
+  // PROBE this flag, never write it -- a stale desired value here would
+  // erase the user's native setting on every plugin/shell restart.
+  property bool screensaverWritePending: false
+  property int _debugWriteReconciledCount: 0
 
   function refreshScreensaverFlag() {
     if (!root.toggleEnabledPath) return
@@ -495,10 +532,14 @@ Item {
   function setScreensaverOff(off) {
     root.screensaverDesiredOff = off === true
     root.screensaverOff = root.screensaverDesiredOff
+    root.screensaverWritePending = true
     maybeWriteScreensaverFlag()
   }
 
+  // No-op unless a user action is actually pending -- tool resolution calls
+  // this unconditionally, but must never turn into a write of its own.
   function maybeWriteScreensaverFlag() {
+    if (!root.screensaverWritePending) return
     if (!root.togglePath) return
     if (screensaverWriter.running) return
     screensaverWriter.wrote = root.screensaverDesiredOff
@@ -511,9 +552,11 @@ Item {
   function handleWriteExit(exitCode, err) {
     if (exitCode !== 0) log("omarchy-toggle screensaver-off failed (exit " + exitCode + ")")
     if (root.screensaverDesiredOff !== screensaverWriter.wrote) {
+      root._debugWriteReconciledCount = root._debugWriteReconciledCount + 1
       root.maybeWriteScreensaverFlag()
       return
     }
+    root.screensaverWritePending = false
     root.refreshScreensaverFlag()
   }
 
@@ -877,6 +920,8 @@ Item {
     }
     if (root._sleepNormalized.clamped)
       log("sleepAfterIdleLock exceeded the cap -- clamped to " + root._sleepNormalized.seconds + "s")
+    if (root._sleepNormalized.rejected)
+      log("sleepAfterIdleLock is below the " + root.minSleepSeconds + "s floor -- treated as never")
     log("sleep delay is now " + (sleepSeconds > 0 ? sleepSeconds + "s" : "never"))
   }
   onDryRunChanged: log("dry run is now " + dryRun)
