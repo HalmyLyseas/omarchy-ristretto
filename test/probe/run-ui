@@ -1,0 +1,337 @@
+#!/usr/bin/env bash
+# test/probe/run-ui -- UI probe suite: runs ui-probe.qml under `qs -n -p`,
+# instantiating the REAL BarWidget.qml/Panel.qml and Service.qml against a
+# stub bar/shell and the mock omarchy-toggle* tools. Skips without `qs`.
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PLUGIN_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+MOCKS="$PLUGIN_DIR/test/mocks"
+OUT_DIR="$(mktemp -d)"
+trap 'rm -rf "$OUT_DIR"' EXIT
+
+fail_count=0
+pass_count=0
+ok() { pass_count=$((pass_count + 1)); echo "ok - $1"; }
+not_ok() { fail_count=$((fail_count + 1)); echo "NOT OK - $1"; }
+
+if ! command -v qs >/dev/null 2>&1; then
+  echo "test/probe/run-ui: no \`qs\` on PATH (no Wayland session?) -- skipping UI probe suite"
+  exit 0
+fi
+
+QMLROOT="$OUT_DIR/qmlroot"
+mkdir -p "$QMLROOT"
+ln -sfn /usr/share/omarchy/shell "$QMLROOT/qs"
+
+json_line() { grep -o 'PROBE_RESULT .*' "$1" | tail -n1 | sed 's/^PROBE_RESULT //'; }
+
+field() {
+  node -e '
+    try {
+      const data = JSON.parse(process.argv[1]);
+      const parts = process.argv[2].split(".");
+      let v = data;
+      for (const p of parts) { if (v === null || v === undefined) break; v = v[p]; }
+      process.stdout.write(v === undefined || v === null ? "" : String(v));
+    } catch (e) { process.stdout.write(""); }
+  ' "$1" "$2"
+}
+
+# arrfield JSON arrayName index field -- reads patches[index].field, or the
+# array itself when field is omitted (prints its JSON).
+arrfield() {
+  node -e '
+    try {
+      const data = JSON.parse(process.argv[1]);
+      const arr = data[process.argv[2]] || [];
+      const item = arr[Number(process.argv[3])];
+      if (process.argv[4] === undefined) { process.stdout.write(JSON.stringify(item === undefined ? null : item)); return; }
+      const v = (item || {})[process.argv[4]];
+      process.stdout.write(v === undefined || v === null ? "" : String(v));
+    } catch (e) { process.stdout.write(""); }
+  ' "$1" "$2" "$3" "$4"
+}
+
+# json_keys JSON path -- sorted comma-joined keys of the object at `path`
+# (dot-separated), for asserting "only these keys were written".
+json_keys() {
+  node -e '
+    try {
+      const data = JSON.parse(process.argv[1]);
+      const parts = process.argv[2].split(".");
+      let v = data;
+      for (const p of parts) { if (v === null || v === undefined) break; v = v[p]; }
+      process.stdout.write(v && typeof v === "object" ? Object.keys(v).sort().join(",") : "");
+    } catch (e) { process.stdout.write(""); }
+  ' "$1" "$2"
+}
+
+alive() {
+  local pid="$1" state
+  state="$(awk '{print $3}' "/proc/$pid/stat" 2>/dev/null)" || return 1
+  [[ -n "$state" && "$state" != "Z" && "$state" != "X" ]]
+}
+settled_alive() {
+  local pid="$1" i
+  for i in 1 2 3 4 5 6 7 8 9 10; do
+    alive "$pid" || return 1
+    sleep 0.2
+  done
+  return 0
+}
+check_no_orphans() {
+  local mocklog="$1" label="$2"
+  local pids leaked=0
+  pids="$(grep -oP '^PID=\K[0-9]+' "$mocklog" 2>/dev/null | sort -u)"
+  for pid in $pids; do
+    if settled_alive "$pid"; then
+      leaked=1
+      kill -TERM "$pid" 2>/dev/null || true
+      sleep 0.2
+      alive "$pid" && kill -9 "$pid" 2>/dev/null || true
+      echo "  orphan: PID $pid was still alive after qs exited (killed by test/probe/run-ui)"
+    fi
+  done
+  if [[ $leaked -eq 1 ]]; then
+    not_ok "$label: no orphaned mock process left behind"
+  else
+    ok "$label: no orphaned mock process left behind"
+  fi
+}
+check_exit_status() {
+  local label="$1" code
+  code="$(cat "$OUT_DIR/$label.exit" 2>/dev/null || echo "")"
+  [[ "$code" == "0" ]] && ok "$label: qs exited 0 (not a crash/timeout, got $code)" \
+    || not_ok "$label: qs exited 0 (not a crash/timeout, got exit code: ${code:-unknown})"
+}
+check_no_engine_errors() {
+  local log="$1" label="$2"
+  local count
+  count="$(grep -c 'TypeError\|ReferenceError\|ERROR:' "$log" 2>/dev/null || true)"
+  if [[ "${count:-0}" -eq 0 ]]; then
+    ok "$label: 0 TypeError/ReferenceError/QML load ERROR in the log"
+  else
+    not_ok "$label: 0 TypeError/ReferenceError/QML load ERROR in the log (got $count)"
+    grep 'TypeError\|ReferenceError\|ERROR:' "$log" | head -5 | sed 's/^/    /'
+  fi
+}
+
+# Every scenario gets its own isolated $HOME + PATH-shadow linkdir, matching
+# test/probe/run: a login-shell resolver (`bash -lc "type -P ..."`) rebuilds
+# PATH from .bash_profile, so a plain PATH= export is not enough.
+setup_scenario_env() {
+  local label="$1"
+  local home="$OUT_DIR/$label-home"
+  local linkdir="$OUT_DIR/$label-link"
+  mkdir -p "$home" "$linkdir"
+  ln -sfn "$MOCKS/omarchy-toggle" "$linkdir/omarchy-toggle"
+  ln -sfn "$MOCKS/omarchy-toggle-enabled" "$linkdir/omarchy-toggle-enabled"
+  ln -sfn "$MOCKS/omarchy-notification-send" "$linkdir/omarchy-notification-send"
+  ln -sfn "$MOCKS/systemctl" "$linkdir/systemctl"
+  printf 'PATH="%s"\n' "$linkdir" > "$home/.bash_profile"
+}
+
+run_scenario() {
+  local label="$1" ui_scenario="$2"
+  local home="$OUT_DIR/$label-home"
+  local log="$OUT_DIR/$label.log"
+  local mocklog="$OUT_DIR/$label.mock.log"
+  : > "$mocklog"
+  env RISTRETTO_MOCK_LOG="$mocklog" RISTRETTO_PLUGIN_DIR="$PLUGIN_DIR" RISTRETTO_UI_SCENARIO="$ui_scenario" \
+    QML_IMPORT_PATH="$QMLROOT" \
+    HOME="$home" PATH="/usr/bin:/bin" \
+    timeout 30 qs -n -p "$PLUGIN_DIR/test/probe/ui-probe.qml" > "$log" 2>&1
+  echo "$?" > "$OUT_DIR/$label.exit"
+}
+
+run_common_checks() {
+  local label="$1"
+  check_exit_status "$label"
+  check_no_engine_errors "$OUT_DIR/$label.log" "$label"
+  check_no_orphans "$OUT_DIR/$label.mock.log" "$label"
+}
+
+get_json() { json_line "$OUT_DIR/$1.log"; }
+report_json_line() {
+  local label="$1" json="$2"
+  if [[ -z "$json" ]]; then
+    not_ok "$label: probe printed a PROBE_RESULT line"
+    cat "$OUT_DIR/$label.log"
+    return 1
+  fi
+  ok "$label: probe printed a PROBE_RESULT line"
+  return 0
+}
+
+echo "== 1: render -- hero 'sleep never', sliders on the nearest stop, no writes =="
+setup_scenario_env render
+run_scenario render render
+json="$(get_json render)"
+report_json_line render "$json"
+[[ -n "$json" ]] && {
+  [[ "$(field "$json" heroStatus)" == "sleep never" ]] && ok "render: heroStatus == 'sleep never'" \
+    || not_ok "render: heroStatus == 'sleep never' (got: $(field "$json" heroStatus))"
+  [[ "$(field "$json" screensaverIndex)" == "1" ]] && ok "render: screensaverIndex snaps 150s to the 2min stop (index 1)" \
+    || not_ok "render: screensaverIndex == 1 (got $(field "$json" screensaverIndex))"
+  [[ "$(field "$json" lockIndex)" == "2" ]] && ok "render: lockIndex snaps 300s to the 5min stop (index 2)" \
+    || not_ok "render: lockIndex == 2 (got $(field "$json" lockIndex))"
+  [[ "$(field "$json" mutateCallsLenAfterLoad)" == "0" ]] && ok "render: mutateShellConfig recorder empty after load" \
+    || not_ok "render: mutateShellConfig recorder empty after load (got $(field "$json" mutateCallsLenAfterLoad))"
+  [[ "$(field "$json" mutateCallsLenAfterOpen)" == "0" ]] && ok "render: mutateShellConfig recorder empty after open()" \
+    || not_ok "render: mutateShellConfig recorder empty after open() (got $(field "$json" mutateCallsLenAfterOpen))"
+}
+run_common_checks render
+
+echo
+echo "== 2: slider commits write only the moved key; a clamp writes both =="
+setup_scenario_env slider-commit
+run_scenario slider-commit slider-commit
+json="$(get_json slider-commit)"
+report_json_line slider-commit "$json"
+[[ -n "$json" ]] && {
+  [[ "$(json_keys "$json" "patches.0.patch")" == "screensaver" ]] && ok "slider-commit: ss-only patch has only 'screensaver'" \
+    || not_ok "slider-commit: ss-only patch has only 'screensaver' (got: $(json_keys "$json" "patches.0.patch"))"
+  [[ "$(arrfield "$json" patches 0 patch.screensaver 2>/dev/null)" == "" ]] # noop, patch is nested; read via arrfield below instead
+  ss0="$(node -e 'const d=JSON.parse(process.argv[1]);process.stdout.write(String(d.patches[0].patch.screensaver))' "$json")"
+  [[ "$ss0" == "120" ]] && ok "slider-commit: ss-only writes screensaver=120" || not_ok "slider-commit: ss-only writes screensaver=120 (got $ss0)"
+
+  [[ "$(json_keys "$json" "patches.1.patch")" == "lock" ]] && ok "slider-commit: lock-only patch has only 'lock'" \
+    || not_ok "slider-commit: lock-only patch has only 'lock' (got: $(json_keys "$json" "patches.1.patch"))"
+  lk1="$(node -e 'const d=JSON.parse(process.argv[1]);process.stdout.write(String(d.patches[1].patch.lock))' "$json")"
+  [[ "$lk1" == "300" ]] && ok "slider-commit: lock-only writes lock=300" || not_ok "slider-commit: lock-only writes lock=300 (got $lk1)"
+
+  [[ "$(json_keys "$json" "patches.2.patch")" == "lock,screensaver" ]] && ok "slider-commit: ss-clamp patch has both keys" \
+    || not_ok "slider-commit: ss-clamp patch has both keys (got: $(json_keys "$json" "patches.2.patch"))"
+  lk2="$(node -e 'const d=JSON.parse(process.argv[1]);process.stdout.write(String(d.patches[2].patch.lock))' "$json")"
+  [[ "$lk2" == "300" ]] && ok "slider-commit: ss-clamp forces lock to lockIndexAbove (300)" \
+    || not_ok "slider-commit: ss-clamp forces lock to lockIndexAbove (got $lk2)"
+
+  [[ "$(json_keys "$json" "patches.3.patch")" == "lock,screensaver" ]] && ok "slider-commit: lock-clamp patch has both keys" \
+    || not_ok "slider-commit: lock-clamp patch has both keys (got: $(json_keys "$json" "patches.3.patch"))"
+  ss3="$(node -e 'const d=JSON.parse(process.argv[1]);process.stdout.write(String(d.patches[3].patch.screensaver))' "$json")"
+  [[ "$ss3" == "300" ]] && ok "slider-commit: lock-clamp forces screensaver to screensaverIndexBelow (300)" \
+    || not_ok "slider-commit: lock-clamp forces screensaver to screensaverIndexBelow (got $ss3)"
+}
+run_common_checks slider-commit
+
+echo
+echo "== 3: conflict warning: stored lock <= screensaver -> visible, no write; a commit clears it =="
+setup_scenario_env conflict
+run_scenario conflict conflict
+json="$(get_json conflict)"
+report_json_line conflict "$json"
+[[ -n "$json" ]] && {
+  [[ "$(field "$json" delaysConflictBefore)" == "true" ]] && ok "conflict: delaysConflict true with lock<=screensaver" \
+    || not_ok "conflict: delaysConflict true (got $(field "$json" delaysConflictBefore))"
+  [[ "$(field "$json" warningVisibleBefore)" == "true" ]] && ok "conflict: warning Text visible" \
+    || not_ok "conflict: warning Text visible (got $(field "$json" warningVisibleBefore))"
+  [[ "$(field "$json" mutateLenBefore)" == "0" ]] && ok "conflict: nothing written merely by rendering" \
+    || not_ok "conflict: nothing written merely by rendering (got $(field "$json" mutateLenBefore))"
+  [[ "$(field "$json" delaysConflictAfter)" == "false" ]] && ok "conflict: delaysConflict clears after a commit" \
+    || not_ok "conflict: delaysConflict clears after a commit (got $(field "$json" delaysConflictAfter))"
+  [[ "$(field "$json" warningVisibleAfter)" == "false" ]] && ok "conflict: warning Text hides after a commit" \
+    || not_ok "conflict: warning Text hides after a commit (got $(field "$json" warningVisibleAfter))"
+}
+run_common_checks conflict
+
+echo
+echo "== 4: keyboard model: section walk/clamp, per-scale steps, stayawake/screensaver activation =="
+setup_scenario_env keyboard
+run_scenario keyboard keyboard
+json="$(get_json keyboard)"
+report_json_line keyboard "$json"
+[[ -n "$json" ]] && {
+  down="$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).down.join(","))' "$json")"
+  [[ "$down" == "screensaver,ssdelay,lockdelay,sleep,sleep,sleep" ]] && ok "keyboard: moveCursor(1)x6 walks then clamps at 'sleep'" \
+    || not_ok "keyboard: moveCursor(1)x6 walk/clamp (got: $down)"
+  up="$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).up.join(","))' "$json")"
+  [[ "$up" == "lockdelay,ssdelay,screensaver,stayawake,stayawake,stayawake" ]] && ok "keyboard: moveCursor(-1)x6 walks then clamps at 'stayawake'" \
+    || not_ok "keyboard: moveCursor(-1)x6 walk/clamp (got: $up)"
+  ssd="$(node -e 'const d=JSON.parse(process.argv[1]);process.stdout.write(JSON.stringify(d.ssDownPatch))' "$json")"
+  [[ "$ssd" == '{"screensaver":120}' ]] && ok "keyboard: ssdelay down from 150s lands on the 2min stop (120)" \
+    || not_ok "keyboard: ssdelay down from 150s (got: $ssd)"
+  ssu="$(node -e 'const d=JSON.parse(process.argv[1]);process.stdout.write(JSON.stringify(d.ssUpPatch))' "$json")"
+  [[ "$ssu" == '{"screensaver":180}' ]] && ok "keyboard: ssdelay up from 150s lands on the 3min stop (180)" \
+    || not_ok "keyboard: ssdelay up from 150s (got: $ssu)"
+  sp="$(node -e 'const d=JSON.parse(process.argv[1]);process.stdout.write(JSON.stringify(d.sleepPatch))' "$json")"
+  [[ "$sp" == '{"sleepAfterIdleLock":-1}' ]] && ok "keyboard: sleep steps into 'never' only from the top stop" \
+    || not_ok "keyboard: sleep step into 'never' (got: $sp)"
+  calls="$(node -e 'process.stdout.write(JSON.stringify(JSON.parse(process.argv[1]).setIdleEnabledCalls))' "$json")"
+  [[ "$calls" == "[false]" ]] && ok "keyboard: activateCursor(stayawake) calls setIdleEnabled(current stayAwake) once" \
+    || not_ok "keyboard: setIdleEnabledCalls (got: $calls)"
+  [[ "$(field "$json" screensaverToggleLogged)" == "true" ]] && ok "keyboard: activateCursor(screensaver) flips the service's flag (mock argv logged)" \
+    || not_ok "keyboard: screensaver toggle argv logged (got $(field "$json" screensaverToggleLogged))"
+}
+run_common_checks keyboard
+
+echo
+echo "== 5: hero truth: stay-awake dims + overrides status; sleep label; string dryRun normalizes =="
+setup_scenario_env hero
+run_scenario hero hero
+json="$(get_json hero)"
+report_json_line hero "$json"
+[[ -n "$json" ]] && {
+  [[ "$(field "$json" heroStayAwake)" == "staying awake" ]] && ok "hero: heroStatus == 'staying awake'" \
+    || not_ok "hero: heroStatus == 'staying awake' (got: $(field "$json" heroStayAwake))"
+  [[ "$(field "$json" dimOpacity)" == "0.4" ]] && ok "hero: screensaver section dims to opacity 0.4" \
+    || not_ok "hero: screensaver section dims to opacity 0.4 (got: $(field "$json" dimOpacity))"
+  [[ "$(field "$json" heroSleep300)" == "sleep 5 min after lock" ]] && ok "hero: heroStatus == 'sleep 5 min after lock'" \
+    || not_ok "hero: heroStatus for sleepAfterIdleLock=300 (got: $(field "$json" heroSleep300))"
+  [[ "$(field "$json" dryRunFromStringTrue)" == "true" ]] && ok "hero: dryRun:\"true\" (string) normalizes to true" \
+    || not_ok "hero: dryRun:\"true\" normalizes to true (got: $(field "$json" dryRunFromStringTrue))"
+}
+run_common_checks hero
+
+echo
+echo "== 6: commitSleep merge: updateEntryInline keeps every sibling key =="
+setup_scenario_env commit-sleep-merge
+run_scenario commit-sleep-merge commit-sleep-merge
+json="$(get_json commit-sleep-merge)"
+report_json_line commit-sleep-merge "$json"
+[[ -n "$json" ]] && {
+  [[ "$(field "$json" call.id)" == "halmylyseas.ristretto" ]] && ok "commit-sleep-merge: updateEntryInline called with the moduleName" \
+    || not_ok "commit-sleep-merge: updateEntryInline id (got: $(field "$json" call.id))"
+  [[ "$(field "$json" call.settings.sleepAfterIdleLock)" == "300" ]] && ok "commit-sleep-merge: sleepAfterIdleLock == 300" \
+    || not_ok "commit-sleep-merge: sleepAfterIdleLock == 300 (got: $(field "$json" call.settings.sleepAfterIdleLock))"
+  [[ "$(field "$json" call.settings.dryRun)" == "true" ]] && ok "commit-sleep-merge: sibling dryRun survives the write" \
+    || not_ok "commit-sleep-merge: sibling dryRun survives (got: $(field "$json" call.settings.dryRun))"
+}
+run_common_checks commit-sleep-merge
+
+echo
+echo "== 7: lifecycle: serviceFor()=null at first paint -> defaults; then the real service arrives =="
+setup_scenario_env lifecycle
+run_scenario lifecycle lifecycle
+json="$(get_json lifecycle)"
+report_json_line lifecycle "$json"
+[[ -n "$json" ]] && {
+  [[ "$(field "$json" screensaverEnabledWhileNull)" == "true" ]] && ok "lifecycle: screensaverEnabled==true while serviceFor() is null" \
+    || not_ok "lifecycle: screensaverEnabled==true while null (got: $(field "$json" screensaverEnabledWhileNull))"
+  [[ "$(field "$json" screensaverOffAfterServiceArrives)" == "true" ]] && ok "lifecycle: screensaverOff follows the live service once it arrives" \
+    || not_ok "lifecycle: screensaverOff follows the live service (got: $(field "$json" screensaverOffAfterServiceArrives))"
+}
+run_common_checks lifecycle
+
+echo
+echo "== 8: no Process other than the service's own is spawned by the UI =="
+setup_scenario_env nospawn
+run_scenario nospawn nospawn
+json="$(get_json nospawn)"
+report_json_line nospawn "$json"
+[[ -n "$json" ]] && {
+  [[ "$(field "$json" onlyServiceStartupLogged)" == "true" ]] && ok "nospawn: mock log only shows the service's own startup calls" \
+    || not_ok "nospawn: mock log only shows the service's own startup calls (got $(field "$json" onlyServiceStartupLogged))"
+  n="$(field "$json" mockLogLineCount)"
+  [[ "${n:-0}" -ge 1 ]] && ok "nospawn: mock log has at least the startup probe ($n line(s))" \
+    || not_ok "nospawn: mock log has at least the startup probe (got $n)"
+}
+run_common_checks nospawn
+
+echo
+if [[ "$fail_count" -eq 0 ]]; then
+  echo "test/probe/run-ui: ALL CHECKS PASSED ($pass_count ok)"
+else
+  echo "test/probe/run-ui: $fail_count FAILURE(S), $pass_count ok"
+fi
+exit $(( fail_count > 0 ? 1 : 0 ))

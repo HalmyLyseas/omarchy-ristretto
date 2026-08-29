@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# test/all -- runs every test suite in this repo: the Node suite over
-# Model.js, and the qs-driven service probe (test/probe/run) over the real
-# Service.qml. The probe suite skips itself (exit 0) when `qs` is not on
-# PATH -- no Wayland session to run a real Quickshell instance against.
-# Exits non-zero if any suite fails.
+# test/all -- runs every test suite in this repo: the Node suites over
+# Model.js and the QML Text sinks, and the qs-driven probes (service state
+# machine, then BarWidget/Panel UI) over the real Service/BarWidget/Panel.
+# Both probe suites skip themselves (exit 0) when `qs` is not on PATH -- no
+# Wayland session to run a real Quickshell instance against. Exits non-zero
+# if any suite fails.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -14,8 +15,18 @@ node "$SCRIPT_DIR/model.test.js"
 if [[ $? -ne 0 ]]; then overall=1; fi
 
 echo
+echo "== QML Text sinks (node) =="
+node "$SCRIPT_DIR/qml-sinks.test.js"
+if [[ $? -ne 0 ]]; then overall=1; fi
+
+echo
 echo "== Service.qml (qs probe) =="
 bash "$SCRIPT_DIR/probe/run"
+if [[ $? -ne 0 ]]; then overall=1; fi
+
+echo
+echo "== BarWidget.qml/Panel.qml (qs UI probe) =="
+bash "$SCRIPT_DIR/probe/run-ui"
 if [[ $? -ne 0 ]]; then overall=1; fi
 
 echo
