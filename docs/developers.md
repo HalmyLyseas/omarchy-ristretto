@@ -184,8 +184,19 @@ compositor idle state cannot be scripted).
   the conflict warning, the keyboard cursor, the hero subtitle, the
   settings merge, the null-service lifecycle, and that nothing spawns a
   process the service itself didn't start.
-- `test/ci-local` — placeholder for a future headless-CI harness; not yet
-  implemented.
+- `test/ci-local [--no-cage]` — mirrors `.github/workflows/test.yml` on a
+  dev box: qmllint, `omarchy plugin validate .`, `node --test
+  test/*.test.js`, `node test/host-contract.mjs`, then both `qs` probes
+  under `cage` (install it yourself, Arch `extra`) or, with `--no-cage`,
+  whatever Wayland display the calling session already has. Ends with
+  `ALL SUITES PASSED` or a failure summary. The workflow itself runs the
+  same steps in a fresh `archlinux:latest` container on every push to
+  `master`/`hardening` and every pull request, extracting
+  `usr/share/omarchy/shell` and the validator binary out of the `omarchy`
+  package with `pacman -Swdd` + `bsdtar` instead of installing the whole
+  desktop, then drives both probes under `cage` with a headless Wayland
+  backend. Nothing here needs a marketplace CLI beyond what
+  `test/mocks` already stands in for.
 - `bash test/all` runs everything above in order and exits non-zero on
   any failure. Both `qs` probes and the host-contract check skip
   themselves cleanly with no live shell tree/Wayland session to run

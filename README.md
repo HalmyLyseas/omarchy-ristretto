@@ -129,6 +129,8 @@ omarchy plugin validate .    # manifest + security-baseline checks
 `bash test/all`'s unit and hygiene suites need only plain Node; the two
 `qs`-driven probes and the host-contract check skip themselves cleanly
 when there's no live shell tree or Quickshell session to run against.
+`bash test/ci-local [--no-cage]` runs the full set for real, the same way
+`.github/workflows/test.yml` does on every push and pull request.
 
 ## Developing
 
