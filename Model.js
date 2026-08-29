@@ -13,6 +13,11 @@ var LOCK_STOPS = [2, 3, 5, 10, 15, 30]
 var SLEEP_STOPS = [60, 120, 180, 300, 600, -1]
 var SLEEP_NEVER = -1
 
+// Far under the int32-ms Timer.interval limit (2147483s): hand-edited
+// garbage read as seconds must never survive a multiply-by-1000 that
+// wraps the interval negative.
+var SLEEP_MAX_SECONDS = 86400
+
 // Nearest stop to an arbitrary value. Omarchy's defaults (screensaver 150s =
 // 2.5min) do not sit on our scale, so the panel snaps the *display* without
 // writing anything back.
@@ -112,11 +117,36 @@ function sleepStepFrom(seconds, direction) {
   return null
 }
 
+// ---------------------------------------------------------- config validation
+// Raw config values are hand-editable JSON: a normalizer accepts only the
+// shapes it can act on safely and fails toward the harmless outcome.
+
+// Only a finite number (or numeric string) at or above minSeconds counts as
+// a real delay; everything else means "never". minSeconds is a parameter so
+// Service.qml's minSleepSeconds (60 in production) can lower it for a probe.
+function normalizeSleepSeconds(raw, minSeconds) {
+  var floor = minSeconds > 0 ? minSeconds : 60
+  var n = Number(raw)
+  if (!isFinite(n) || n < floor) return { seconds: SLEEP_NEVER, clamped: false }
+  var capped = Math.min(n, SLEEP_MAX_SECONDS)
+  return { seconds: capped, clamped: capped !== n }
+}
+
+// Fail-safe direction: only an explicit truthy boolean/number/string means
+// "really dry run" -- the danger is a string that LOOKS true reading as
+// false and producing a real suspend, so everything else stays off.
+function normalizeDryRun(raw) {
+  return raw === true || raw === "true" || raw === 1 || raw === "1"
+}
+
 // ------------------------------------------------------- own settings entry
 //
 // The shell injects `settings` into widgets and panels, but a service gets
 // only `shell`, so it has to find its own entry in shellConfig. The entry
 // lives in the bar layout for a bar-widget plugin and in plugins[] otherwise.
+
+// A hostile non-array "length" (e.g. 2e9) in place of one of these
+// collections is refused: Array.isArray runs before the length is trusted.
 
 function entryFor(config, id) {
   if (!config) return null
@@ -124,11 +154,13 @@ function entryFor(config, id) {
   var sections = ["left", "center", "right"]
   if (layout) {
     for (var s = 0; s < sections.length; s++) {
-      var arr = layout[sections[s]] || []
+      var raw = layout[sections[s]]
+      var arr = Array.isArray(raw) ? raw : []
       for (var i = 0; i < arr.length; i++) if (arr[i] && arr[i].id === id) return arr[i]
     }
   }
-  var plugins = config.plugins || []
+  var pluginsRaw = config.plugins
+  var plugins = Array.isArray(pluginsRaw) ? pluginsRaw : []
   for (var j = 0; j < plugins.length; j++) if (plugins[j] && plugins[j].id === id) return plugins[j]
   return null
 }

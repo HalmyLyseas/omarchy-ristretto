@@ -331,7 +331,100 @@ test("sleepStepFrom: off-scale 90 -- up lands on 120, down lands on 60", functio
   assert.strictEqual(Model.sleepStepFrom(90, -1), 60)
 })
 
+// ---------------------------------------------------------- normalizeSleepSeconds
+
+test("normalizeSleepSeconds: SLEEP_MAX_SECONDS is pinned to 86400 (24h, far under the int32-ms limit)", function () {
+  assert.strictEqual(Model.SLEEP_MAX_SECONDS, 86400)
+})
+
+test("normalizeSleepSeconds: overflow-prone 4294968 clamps to SLEEP_MAX_SECONDS with clamped=true", function () {
+  var r = Model.normalizeSleepSeconds(4294968, 60)
+  assert.strictEqual(r.seconds, 86400)
+  assert.strictEqual(r.clamped, true)
+})
+
+test("normalizeSleepSeconds: true (Number(true)===1) is below the floor -- SLEEP_NEVER, not clamped", function () {
+  var r = Model.normalizeSleepSeconds(true, 60)
+  assert.strictEqual(r.seconds, Model.SLEEP_NEVER)
+  assert.strictEqual(r.clamped, false)
+})
+
+test("normalizeSleepSeconds: the string \"true\" is not a number -- SLEEP_NEVER", function () {
+  var r = Model.normalizeSleepSeconds("true", 60)
+  assert.strictEqual(r.seconds, Model.SLEEP_NEVER)
+  assert.strictEqual(r.clamped, false)
+})
+
+test("normalizeSleepSeconds: 5 is below the 60s floor -- SLEEP_NEVER", function () {
+  var r = Model.normalizeSleepSeconds(5, 60)
+  assert.strictEqual(r.seconds, Model.SLEEP_NEVER)
+  assert.strictEqual(r.clamped, false)
+})
+
+test("normalizeSleepSeconds: numeric string \"300\" is accepted at face value", function () {
+  var r = Model.normalizeSleepSeconds("300", 60)
+  assert.strictEqual(r.seconds, 300)
+  assert.strictEqual(r.clamped, false)
+})
+
+test("normalizeSleepSeconds: NaN -- SLEEP_NEVER", function () {
+  var r = Model.normalizeSleepSeconds(NaN, 60)
+  assert.strictEqual(r.seconds, Model.SLEEP_NEVER)
+  assert.strictEqual(r.clamped, false)
+})
+
+test("normalizeSleepSeconds: a plain object -- SLEEP_NEVER (Number({}) is NaN)", function () {
+  var r = Model.normalizeSleepSeconds({}, 60)
+  assert.strictEqual(r.seconds, Model.SLEEP_NEVER)
+  assert.strictEqual(r.clamped, false)
+})
+
+test("normalizeSleepSeconds: -1 (the stored 'never' value) -- SLEEP_NEVER, not clamped", function () {
+  var r = Model.normalizeSleepSeconds(-1, 60)
+  assert.strictEqual(r.seconds, Model.SLEEP_NEVER)
+  assert.strictEqual(r.clamped, false)
+})
+
+test("normalizeSleepSeconds: exactly at the floor is accepted", function () {
+  var r = Model.normalizeSleepSeconds(60, 60)
+  assert.strictEqual(r.seconds, 60)
+  assert.strictEqual(r.clamped, false)
+})
+
+test("normalizeSleepSeconds: a lower probe-supplied floor accepts a short delay", function () {
+  var r = Model.normalizeSleepSeconds(2, 1)
+  assert.strictEqual(r.seconds, 2)
+  assert.strictEqual(r.clamped, false)
+})
+
+test("normalizeSleepSeconds: exactly SLEEP_MAX_SECONDS is accepted, not clamped", function () {
+  var r = Model.normalizeSleepSeconds(86400, 60)
+  assert.strictEqual(r.seconds, 86400)
+  assert.strictEqual(r.clamped, false)
+})
+
+// --------------------------------------------------------------- normalizeDryRun
+
+test("normalizeDryRun: true, \"true\", 1, \"1\" all normalize to true", function () {
+  ;[true, "true", 1, "1"].forEach(function (v) {
+    assert.strictEqual(Model.normalizeDryRun(v), true, "expected true for " + JSON.stringify(v))
+  })
+})
+
+test("normalizeDryRun: false, \"false\", 0, \"\", null, undefined, {} all normalize to false", function () {
+  ;[false, "false", 0, "", null, undefined, {}].forEach(function (v) {
+    assert.strictEqual(Model.normalizeDryRun(v), false, "expected false for " + JSON.stringify(v))
+  })
+})
+
 // ------------------------------------------------------------------------ entryFor
+
+test("entryFor: hostile non-array collections (a fake 'length') are refused, never trusted", function () {
+  var id = "halmylyseas.ristretto"
+  var hostile = { length: 2000000000 }
+  assert.strictEqual(Model.entryFor({ bar: { layout: { left: hostile, center: [], right: [] } } }, id), null)
+  assert.strictEqual(Model.entryFor({ plugins: hostile }, id), null)
+})
 
 test("entryFor: null/undefined config returns null", function () {
   assert.strictEqual(Model.entryFor(null, "halmylyseas.ristretto"), null)
