@@ -11,9 +11,11 @@ assumes are enforced, and `docs/developers.md` for architecture detail.
   idle the user happens to be at that moment.
 - **The machine must never suspend on a lock that is not secure** — a
   session-lock request with no real lock screen behind it yet.
-- **Nothing outside this plugin's own settings entry and its screensaver
-  flag file gets written.** The delay sliders and switches are the only
-  paths that touch `shell.json` or `~/.local/state/omarchy/toggles/`.
+- **The only things this plugin ever writes are:** its own `shell.json`
+  bar-widget entry; the shared `idle.screensaver`/`idle.lock` keys, through
+  the two delay sliders and the host's own config API; and the
+  `screensaver-off` flag file, plus the one-time `mkdir -p` of its parent
+  toggles directory.
 
 ## Trust boundaries and their guard
 
@@ -28,12 +30,11 @@ assumes are enforced, and `docs/developers.md` for architecture detail.
 ## What the plugin cannot do
 
 - It cannot suspend the machine without both an idle-originated lock and a
-  confirmed secure edge; a manual lock, however it was triggered, can
-  never pass the origin check.
+  confirmed secure edge; a lock triggered by the user's own input, however
+  it happened, can never pass the origin check.
 - It cannot modify anything under `/usr/share/omarchy/` (`CLAUDE.md` rule
-  1). Its only writes are its own `shell.json` entry (via
-  `updateEntryInline`/`mutateShellConfig`) and the screensaver-off flag
-  file (via the resolved `omarchy-toggle`).
+  1). Every write it makes is one of the three named above, through
+  `updateEntryInline`/`mutateShellConfig` or the resolved `omarchy-toggle`.
 - It cannot run any tool through a shell string with variable content --
   every spawn is a fixed argv array.
 

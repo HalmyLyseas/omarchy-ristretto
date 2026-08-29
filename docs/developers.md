@@ -99,7 +99,7 @@ per-arm generation counter, synthesizes exit code 127 for it.
 
 | Kind | Command | Deadline (production) |
 |---|---|---|
-| `resolveToggle` / `resolveToggleEnabled` | `bash -lc "type -P omarchy-toggle[-enabled]"` — absolute path only, one 15s retry on failure | 5s |
+| `resolveToggle` / `resolveToggleEnabled` | `bash -lc "type -P omarchy-toggle[-enabled]"` — absolute path only, up to three 15s retries on failure | 5s |
 | `mkdirToggles` | `mkdir -p ~/.local/state/omarchy/toggles`, once at startup | 5s |
 | `write` | resolved `omarchy-toggle screensaver-off on\|off` | 5s |
 | `probe` | resolved `omarchy-toggle-enabled screensaver-off` (exit-code only) | 5s |
@@ -112,10 +112,11 @@ child early.
 
 ## Probe seams
 
-Three plain (non-`readonly`) properties exist only so a probe can shorten
+Plain (non-`readonly`) properties exist only so a probe can shorten
 production timing; nothing in the shipped plugin ever assigns them:
 `minSleepSeconds` (the 60s floor `normalizeSleepSeconds` enforces),
-`configEntryCheckMs` (the delayed no-config-entry warning), and
+`configEntryCheckMs` (the delayed no-config-entry warning),
+`toolRetryIntervalMs` (the 15s spacing between resolution retries), and
 `originIdleSource` (swapped for a stub `QtObject{isIdle}`, since real
 compositor idle state cannot be scripted).
 
