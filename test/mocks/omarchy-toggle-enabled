@@ -10,10 +10,10 @@ if [[ -n "${RISTRETTO_MOCK_TOGGLE_ENABLED_MODE_FILE:-}" && -s "${RISTRETTO_MOCK_
 fi
 
 if [[ -n "${RISTRETTO_MOCK_LOG:-}" ]]; then
-  echo "PID=$$ ARGV: omarchy-toggle-enabled $*" >> "$RISTRETTO_MOCK_LOG"
+  echo "PID=$$ TS=$(date +%s%N) ARGV: omarchy-toggle-enabled $*" >> "$RISTRETTO_MOCK_LOG"
 fi
 
-[[ "$MODE" == "hang" ]] && exec sleep 600
+[[ "$MODE" == "hang" ]] && { trap '' TERM; exec sleep 600; }
 [[ "$MODE" == "fail" ]] && exit 1
 
 flag="${1:-}"

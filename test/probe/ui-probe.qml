@@ -226,6 +226,7 @@ ShellRoot {
     if (scenario === "commit-sleep-merge") return scenarioCommitSleepMerge()
     if (scenario === "lifecycle") return scenarioLifecycle()
     if (scenario === "nospawn") return scenarioNoSpawn()
+    if (scenario === "idle-array-repair") return scenarioIdleArrayRepair()
     finish("unknown RISTRETTO_UI_SCENARIO: " + scenario)
   }
 
@@ -352,18 +353,27 @@ ShellRoot {
 
     waitUntil(function() { return probeRoot.svc && probeRoot.svc.togglePath !== "" }, 5000, function(timedOut) {
       if (timedOut) { finish("service tool resolution did not settle within 5s"); return }
-      p.focusSection = "screensaver"
-      p.activateCursor()
-      after(1200, function() {
-        readMockLog(function(text) {
-          finish("", {
-            down: down,
-            up: up,
-            ssDownPatch: ssDownPatch,
-            ssUpPatch: ssUpPatch,
-            sleepPatch: sleepPatch,
-            setIdleEnabledCalls: idleStub.setIdleEnabledCalls,
-            screensaverToggleLogged: text.indexOf("omarchy-toggle screensaver-off") >= 0
+      readMockLog(function(beforeText) {
+        var writeCountBefore = beforeText.split("\n")
+          .filter(function(l) { return l.indexOf("ARGV: omarchy-toggle screensaver-off") >= 0 }).length
+        p.focusSection = "screensaver"
+        p.activateCursor()
+        after(1200, function() {
+          readMockLog(function(afterText) {
+            var writeLines = afterText.split("\n")
+              .filter(function(l) { return l.indexOf("ARGV: omarchy-toggle screensaver-off") >= 0 })
+            var lastWrite = writeLines.length > 0 ? writeLines[writeLines.length - 1] : ""
+            finish("", {
+              down: down,
+              up: up,
+              ssDownPatch: ssDownPatch,
+              ssUpPatch: ssUpPatch,
+              sleepPatch: sleepPatch,
+              setIdleEnabledCalls: idleStub.setIdleEnabledCalls,
+              writeCountBeforeActivate: writeCountBefore,
+              writeCountAfterActivate: writeLines.length,
+              lastWriteArgvIsOn: lastWrite.indexOf("screensaver-off on") >= 0
+            })
           })
         })
       })
@@ -448,6 +458,23 @@ ShellRoot {
           finish("", { onlyServiceStartupLogged: onlyServiceStartup, mockLogLineCount: lines.length })
         })
       })
+    })
+  }
+
+  // (9) idle:[] repair: a malformed array config must become a real object,
+  // so the moved key survives JSON serialization instead of vanishing as a
+  // stray non-index array property.
+  function scenarioIdleArrayRepair() {
+    var p = panel()
+    if (!p) { finish("no panel instance"); return }
+    stubShell.idleConfig = []
+    idleStub.screensaverTimeoutSeconds = 60
+    idleStub.lockTimeoutSeconds = 1800
+    p.commitScreensaver(1)
+    var roundTripped = JSON.parse(JSON.stringify(stubShell.idleConfig))
+    finish("", {
+      idleConfigIsArray: Array.isArray(stubShell.idleConfig),
+      roundTrippedScreensaver: roundTripped ? roundTripped.screensaver : null
     })
   }
 

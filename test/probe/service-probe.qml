@@ -93,6 +93,9 @@ ShellRoot {
       item.toolTimeoutMs = 800
       item.suspendTimeoutMs = 800
       item.configEntryCheckMs = 300
+      // Fast-forwards the retry cap scenario well under the whole-probe
+      // timeout instead of waiting out the real 15s-apart production spacing.
+      item.toolRetryIntervalMs = probeRoot.scenario === "tools-exhausted" ? 150 : 15000
       settleTimer.start()
     }
   }
@@ -225,6 +228,9 @@ ShellRoot {
     if (scenario === "screensaver-reconcile") return scenarioScreensaverReconcile()
     if (scenario === "toggle-hang") return scenarioToggleHang()
     if (scenario === "tools-removed") return scenarioToolsRemoved()
+    if (scenario === "boot-preseeded-flag") return scenarioBootPreseededFlag()
+    if (scenario === "missing-binary") return scenarioMissingBinary()
+    if (scenario === "tools-exhausted") return scenarioToolsExhausted()
     finishNow()
   }
 
@@ -372,18 +378,25 @@ ShellRoot {
     after(600, finishNow)
   }
 
+  // The second call lands in the same tick as the first, while the writer
+  // is necessarily still starting (a Process can never exit synchronously
+  // within the call that armed it) -- a genuine, non-racy mid-write flip.
   function scenarioScreensaverReconcile() {
     waitUntil(3000, function () {
       return service.togglePath !== "" && service.toggleEnabledPath !== ""
     }, function () {
       service.setScreensaverOff(true)
-      after(30, function () { service.setScreensaverOff(false) })
-      after(60, function () { service.setScreensaverOff(true) })
-      after(2000, function () {
-        probeRoot.reconcileMidState = service.screensaverOff
-        writeMode("toggleEnabled", "fail", function () {
-          service.refreshScreensaverFlag()
-          after(1200, finishNow)
+      service.setScreensaverOff(false)
+      waitUntil(2000, function () {
+        return service._debugWriteReconciledCount >= 1
+      }, function () {
+        service.setScreensaverOff(true)
+        after(1500, function () {
+          probeRoot.reconcileMidState = service.screensaverOff
+          writeMode("toggleEnabled", "fail", function () {
+            service.refreshScreensaverFlag()
+            after(1200, finishNow)
+          })
         })
       })
     })
@@ -450,6 +463,34 @@ ShellRoot {
     })
   }
 
+  // A flag file created before the service ever starts -- proves startup
+  // only probes it (screensaverOff reads true) and never writes it away.
+  function scenarioBootPreseededFlag() {
+    waitUntil(3000, function () {
+      return service.togglePath !== "" && service.toggleEnabledPath !== ""
+    }, function () {
+      after(500, finishNow)
+    })
+  }
+
+  // A resolved path pointed at a binary that does not exist: the write must
+  // count a failed start, not crash the service.
+  function scenarioMissingBinary() {
+    waitUntil(3000, function () {
+      return service.togglePath !== ""
+    }, function () {
+      service.togglePath = "/nonexistent/path/omarchy-toggle-missing"
+      service.setScreensaverOff(true)
+      after(1500, finishNow)
+    })
+  }
+
+  // Neither tool ever appears on PATH -- resolution must give up after
+  // three retries rather than spawning forever.
+  function scenarioToolsExhausted() {
+    after(2500, finishNow)
+  }
+
   function finishNow() { finish("") }
 
   function finish(note) {
@@ -472,7 +513,10 @@ ShellRoot {
       reconcileMidState: probeRoot.reconcileMidState,
       sleepNormChecks: probeRoot.sleepNormChecks,
       toolsRemovedFirstAttempt: probeRoot._toolsRemovedFirstAttempt,
-      writeWatchdogFiredCount: service._writeWatchdogFiredCount
+      writeWatchdogFiredCount: service._writeWatchdogFiredCount,
+      writeReconciledCount: service._debugWriteReconciledCount,
+      writeFailedStartCount: service._writeFailedStartCount,
+      armedAtMs: service._debugArmedAtMs
     }
     console.log("PROBE_RESULT " + JSON.stringify(summary))
     Qt.quit()

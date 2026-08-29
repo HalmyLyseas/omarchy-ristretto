@@ -380,6 +380,66 @@ test("normalizeSleepSeconds: exactly SLEEP_MAX_SECONDS is accepted, not clamped"
   assert.strictEqual(r.clamped, false)
 })
 
+test("normalizeSleepSeconds: rejected=true only for a positive value that missed the floor", function () {
+  assert.strictEqual(Model.normalizeSleepSeconds(5, 60).rejected, true)
+  assert.strictEqual(Model.normalizeSleepSeconds(59, 60).rejected, true)
+})
+
+test("normalizeSleepSeconds: rejected=false for an explicit never, zero, non-numeric, or an accepted delay", function () {
+  ;[-1, 0, NaN, {}, null, undefined, "true", true, [300]].forEach(function (v) {
+    assert.strictEqual(Model.normalizeSleepSeconds(v, 60).rejected, false, "expected rejected=false for " + JSON.stringify(v))
+  })
+  assert.strictEqual(Model.normalizeSleepSeconds(60, 60).rejected, false)
+  assert.strictEqual(Model.normalizeSleepSeconds(300, 60).rejected, false)
+})
+
+test("normalizeSleepSeconds: an array raw value is never coerced by Number() -- treated as never, not armed", function () {
+  assert.strictEqual(Model.normalizeSleepSeconds([300], 60).seconds, Model.SLEEP_NEVER)
+  assert.strictEqual(Model.normalizeSleepSeconds(["300"], 60).seconds, Model.SLEEP_NEVER)
+})
+
+test("normalizeSleepSeconds: a plain object or null raw value is never armed", function () {
+  assert.strictEqual(Model.normalizeSleepSeconds({}, 60).seconds, Model.SLEEP_NEVER)
+  assert.strictEqual(Model.normalizeSleepSeconds(null, 60).seconds, Model.SLEEP_NEVER)
+})
+
+test("normalizeSleepSeconds: a numeric string with surrounding whitespace is trimmed and accepted", function () {
+  var r = Model.normalizeSleepSeconds(" 300 ", 60)
+  assert.strictEqual(r.seconds, 300)
+  assert.strictEqual(r.clamped, false)
+  assert.strictEqual(r.rejected, false)
+})
+
+// ------------------------------------------------------------------ pickResolvedPath
+
+test("pickResolvedPath: a single-line absolute path matching the name is accepted", function () {
+  assert.strictEqual(Model.pickResolvedPath("/usr/bin/omarchy-toggle\n", "omarchy-toggle"), "/usr/bin/omarchy-toggle")
+})
+
+test("pickResolvedPath: takes the LAST non-empty line, ignoring earlier login-shell output", function () {
+  var out = "/bin/false\n/usr/bin/omarchy-toggle\n"
+  assert.strictEqual(Model.pickResolvedPath(out, "omarchy-toggle"), "/usr/bin/omarchy-toggle")
+})
+
+test("pickResolvedPath: a resolved path for the wrong binary name is rejected", function () {
+  assert.strictEqual(Model.pickResolvedPath("/bin/false\n", "omarchy-toggle"), "")
+})
+
+test("pickResolvedPath: a relative or empty result is rejected", function () {
+  assert.strictEqual(Model.pickResolvedPath("omarchy-toggle\n", "omarchy-toggle"), "")
+  assert.strictEqual(Model.pickResolvedPath("", "omarchy-toggle"), "")
+  assert.strictEqual(Model.pickResolvedPath("\n\n", "omarchy-toggle"), "")
+})
+
+test("pickResolvedPath: trailing whitespace on the last line is trimmed", function () {
+  assert.strictEqual(Model.pickResolvedPath("/usr/bin/omarchy-toggle  \n", "omarchy-toggle"), "/usr/bin/omarchy-toggle")
+})
+
+test("pickResolvedPath: the longer 'omarchy-toggle-enabled' suffix is not satisfied by the shorter name", function () {
+  assert.strictEqual(Model.pickResolvedPath("/usr/bin/omarchy-toggle\n", "omarchy-toggle-enabled"), "")
+  assert.strictEqual(Model.pickResolvedPath("/usr/bin/omarchy-toggle-enabled\n", "omarchy-toggle-enabled"), "/usr/bin/omarchy-toggle-enabled")
+})
+
 // --------------------------------------------------------------- normalizeDryRun
 
 test("normalizeDryRun: true, \"true\", 1, \"1\" all normalize to true", function () {

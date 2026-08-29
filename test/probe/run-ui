@@ -154,13 +154,16 @@ run_common_checks() {
 
 get_json() { json_line "$OUT_DIR/$1.log"; }
 report_json_line() {
-  local label="$1" json="$2"
+  local label="$1" json="$2" note
   if [[ -z "$json" ]]; then
     not_ok "$label: probe printed a PROBE_RESULT line"
     cat "$OUT_DIR/$label.log"
     return 1
   fi
   ok "$label: probe printed a PROBE_RESULT line"
+  note="$(field "$json" note)"
+  [[ -z "$note" ]] && ok "$label: probe finished with an empty note" \
+    || not_ok "$label: probe finished with an empty note (got: $note)"
   return 0
 }
 
@@ -260,8 +263,14 @@ report_json_line keyboard "$json"
   calls="$(node -e 'process.stdout.write(JSON.stringify(JSON.parse(process.argv[1]).setIdleEnabledCalls))' "$json")"
   [[ "$calls" == "[false]" ]] && ok "keyboard: activateCursor(stayawake) calls setIdleEnabled(current stayAwake) once" \
     || not_ok "keyboard: setIdleEnabledCalls (got: $calls)"
-  [[ "$(field "$json" screensaverToggleLogged)" == "true" ]] && ok "keyboard: activateCursor(screensaver) flips the service's flag (mock argv logged)" \
-    || not_ok "keyboard: screensaver toggle argv logged (got $(field "$json" screensaverToggleLogged))"
+  wbefore="$(field "$json" writeCountBeforeActivate)"
+  wafter="$(field "$json" writeCountAfterActivate)"
+  [[ "${wbefore:-0}" == "0" ]] && ok "keyboard: no toggle write logged before screensaver activation" \
+    || not_ok "keyboard: no toggle write logged before screensaver activation (got $wbefore)"
+  [[ -n "$wafter" && "$wafter" -gt "${wbefore:-0}" ]] && ok "keyboard: a toggle write is logged after screensaver activation ($wbefore -> $wafter)" \
+    || not_ok "keyboard: a toggle write is logged after screensaver activation (got before=$wbefore after=$wafter)"
+  [[ "$(field "$json" lastWriteArgvIsOn)" == "true" ]] && ok "keyboard: the write argv matches the expected 'on' action" \
+    || not_ok "keyboard: the write argv matches the expected 'on' action (got $(field "$json" lastWriteArgvIsOn))"
 }
 run_common_checks keyboard
 
@@ -327,6 +336,20 @@ report_json_line nospawn "$json"
     || not_ok "nospawn: mock log has at least the startup probe (got $n)"
 }
 run_common_checks nospawn
+
+echo
+echo "== 9: idle:[] config is repaired to an object so a slider commit survives JSON serialization =="
+setup_scenario_env idle-array-repair
+run_scenario idle-array-repair idle-array-repair
+json="$(get_json idle-array-repair)"
+report_json_line idle-array-repair "$json"
+[[ -n "$json" ]] && {
+  [[ "$(field "$json" idleConfigIsArray)" == "false" ]] && ok "idle-array-repair: config.idle becomes a real object, not an array" \
+    || not_ok "idle-array-repair: config.idle becomes a real object (got $(field "$json" idleConfigIsArray))"
+  [[ "$(field "$json" roundTrippedScreensaver)" == "120" ]] && ok "idle-array-repair: the moved key survives a JSON round-trip" \
+    || not_ok "idle-array-repair: the moved key survives a JSON round-trip (got $(field "$json" roundTrippedScreensaver))"
+}
+run_common_checks idle-array-repair
 
 echo
 if [[ "$fail_count" -eq 0 ]]; then

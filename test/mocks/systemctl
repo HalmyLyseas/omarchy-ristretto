@@ -6,9 +6,9 @@ set -uo pipefail
 MODE="${RISTRETTO_MOCK_SYSTEMCTL_MODE:-ok}"
 
 if [[ -n "${RISTRETTO_MOCK_LOG:-}" ]]; then
-  echo "PID=$$ ARGV: systemctl $*" >> "$RISTRETTO_MOCK_LOG"
+  echo "PID=$$ TS=$(date +%s%N) ARGV: systemctl $*" >> "$RISTRETTO_MOCK_LOG"
 fi
 
-[[ "$MODE" == "hang" ]] && exec sleep 600
+[[ "$MODE" == "hang" ]] && { trap '' TERM; exec sleep 600; }
 [[ "$MODE" == "fail" ]] && exit 1
 exit 0

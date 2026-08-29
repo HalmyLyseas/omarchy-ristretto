@@ -112,6 +112,11 @@ mock_call_count() {
   n="$(grep -cF "$2" "$1" 2>/dev/null)"
   echo "${n:-0}"
 }
+# mock_call_ts MOCKLOG PATTERN N -- nanosecond TS= from the Nth (1-based)
+# matching mock-log line, or empty if there aren't that many.
+mock_call_ts() {
+  grep -F "$2" "$1" 2>/dev/null | sed -n "${3}p" | grep -oP 'TS=\K[0-9]+'
+}
 
 # Every scenario gets its own isolated $HOME + PATH-shadow linkdir; the
 # outer PATH also carries /usr/bin for the mocks' own mkdir/touch/rm/cat.
@@ -163,13 +168,16 @@ run_common_checks() {
 # ok/not_ok inside a command substitution loses them to that subshell.
 get_json() { json_line "$OUT_DIR/$1.log"; }
 report_json_line() {
-  local label="$1" json="$2"
+  local label="$1" json="$2" note
   if [[ -z "$json" ]]; then
     not_ok "$label: probe printed a PROBE_RESULT line"
     cat "$OUT_DIR/$label.log"
     return 1
   fi
   ok "$label: probe printed a PROBE_RESULT line"
+  note="$(field "$json" note)"
+  [[ -z "$note" ]] && ok "$label: probe finished with an empty note" \
+    || not_ok "$label: probe finished with an empty note (got: $note)"
   return 0
 }
 
@@ -184,6 +192,16 @@ report_json_line armed-fire "$json"
   n="$(mock_call_count "$OUT_DIR/armed-fire.mock.log" "ARGV: systemctl suspend")"
   [[ "$n" == "1" ]] && ok "armed-fire: systemctl suspend recorded exactly once" \
     || not_ok "armed-fire: systemctl suspend recorded exactly once (got $n)"
+  armed_ms="$(field "$json" armedAtMs)"
+  sys_ts_ns="$(mock_call_ts "$OUT_DIR/armed-fire.mock.log" "ARGV: systemctl suspend" 1)"
+  if [[ -n "$armed_ms" && -n "$sys_ts_ns" ]]; then
+    sys_ms=$(( sys_ts_ns / 1000000 ))
+    expected_min=$(( armed_ms + 1000 - 100 ))
+    [[ "$sys_ms" -ge "$expected_min" ]] && ok "armed-fire: systemctl call timestamp is at least arm+delay-100ms" \
+      || not_ok "armed-fire: systemctl call timestamp is at least arm+delay-100ms (armed=$armed_ms sys=$sys_ms need>=$expected_min)"
+  else
+    not_ok "armed-fire: systemctl call timestamp is at least arm+delay-100ms (missing armedAtMs or mock TS)"
+  fi
 }
 check_log_contains "$OUT_DIR/armed-fire.log" "ristretto suspending" "armed-fire: 'suspending' logged"
 run_common_checks armed-fire
@@ -389,13 +407,42 @@ report_json_line screensaver-reconcile "$json"
   n="$(mock_call_count "$OUT_DIR/screensaver-reconcile.mock.log" "ARGV: omarchy-toggle screensaver-off")"
   [[ "${n:-0}" -ge 2 ]] && ok "screensaver-reconcile: mock log shows the reconciling writes ($n)" \
     || not_ok "screensaver-reconcile: mock log shows the reconciling writes (got $n)"
+  n2="$(field "$json" writeReconciledCount)"
+  [[ "${n2:-0}" -ge 1 ]] && ok "screensaver-reconcile: a write was queued while another ran ($n2 reconciled)" \
+    || not_ok "screensaver-reconcile: a write was queued while another ran (got $n2)"
+  last_write="$(grep -F "ARGV: omarchy-toggle screensaver-off" "$OUT_DIR/screensaver-reconcile.mock.log" | tail -n1)"
+  [[ "$last_write" == *" on" ]] && ok "screensaver-reconcile: the mock log's last write argv matches the final desired state (on)" \
+    || not_ok "screensaver-reconcile: the mock log's last write argv matches the final desired state (on) (got: $last_write)"
 }
 run_common_checks screensaver-reconcile
 
 echo
-echo "== 15: omarchy-toggle hang -> watchdog TERM/KILL within the shortened deadline, no orphan, usable again =="
+echo "== 15: omarchy-toggle hang ignores SIGTERM -> watchdog fires, PID-guarded SIGKILL within ~1.5s, usable again =="
 setup_scenario_env toggle-hang yes
-run_scenario toggle-hang
+run_scenario toggle-hang &
+hang_job=$!
+mocklog="$OUT_DIR/toggle-hang.mock.log"
+hang_pid="" hang_ts=""
+for _ in $(seq 1 100); do
+  match_line="$(grep -m1 'ARGV: omarchy-toggle screensaver-off' "$mocklog" 2>/dev/null)"
+  if [[ -n "$match_line" ]]; then
+    hang_pid="$(echo "$match_line" | grep -oP '^PID=\K[0-9]+')"
+    hang_ts="$(echo "$match_line" | grep -oP 'TS=\K[0-9]+')"
+    break
+  fi
+  sleep 0.05
+done
+kill_elapsed_ms=""
+if [[ -n "$hang_pid" ]]; then
+  for _ in $(seq 1 60); do
+    if ! alive "$hang_pid"; then
+      kill_elapsed_ms=$(( ($(date +%s%N) - hang_ts) / 1000000 ))
+      break
+    fi
+    sleep 0.05
+  done
+fi
+wait "$hang_job"
 json="$(get_json toggle-hang)"
 report_json_line toggle-hang "$json"
 [[ -n "$json" ]] && {
@@ -405,6 +452,14 @@ report_json_line toggle-hang "$json"
   [[ "${n:-0}" -ge 1 ]] && ok "toggle-hang: switch usable again after recovery" \
     || not_ok "toggle-hang: switch usable again after recovery (got $n)"
 }
+[[ -n "$hang_pid" ]] && ok "toggle-hang: hung mock PID captured for the kill-timing check" \
+  || not_ok "toggle-hang: hung mock PID captured for the kill-timing check"
+if [[ -n "$kill_elapsed_ms" ]]; then
+  [[ "$kill_elapsed_ms" -le 2500 ]] && ok "toggle-hang: hung mock PID gone within ~1.5s of the watchdog (${kill_elapsed_ms}ms since spawn)" \
+    || not_ok "toggle-hang: hung mock PID gone within ~1.5s of the watchdog (took ${kill_elapsed_ms}ms)"
+else
+  not_ok "toggle-hang: hung mock PID gone within ~1.5s of the watchdog (never observed dead)"
+fi
 run_common_checks toggle-hang
 
 echo
@@ -428,6 +483,58 @@ check_log_contains "$OUT_DIR/tools-removed.log" "omarchy-toggle not found on PAT
 check_log_contains "$OUT_DIR/tools-removed.log" "omarchy-toggle-enabled not found on PATH -- screensaver flag unknown, defaulting off" \
   "tools-removed: toggle-enabled resolution failure logged"
 run_common_checks tools-removed
+
+echo
+echo "== 17: screensaver-off flag pre-seeded before startup -> no toggle WRITE, screensaverOff reads true =="
+setup_scenario_env boot-preseeded-flag yes
+mkdir -p "$OUT_DIR/boot-preseeded-flag-home/.local/state/omarchy/toggles"
+touch "$OUT_DIR/boot-preseeded-flag-home/.local/state/omarchy/toggles/screensaver-off"
+run_scenario boot-preseeded-flag
+json="$(get_json boot-preseeded-flag)"
+report_json_line boot-preseeded-flag "$json"
+[[ -n "$json" ]] && {
+  [[ "$(field "$json" screensaverOff)" == "true" ]] && ok "boot-preseeded-flag: screensaverOff reads true after startup" \
+    || not_ok "boot-preseeded-flag: screensaverOff reads true after startup (got $(field "$json" screensaverOff))"
+}
+n="$(mock_call_count "$OUT_DIR/boot-preseeded-flag.mock.log" "ARGV: omarchy-toggle screensaver-off")"
+[[ "${n:-0}" == "0" ]] && ok "boot-preseeded-flag: no omarchy-toggle WRITE at startup" \
+  || not_ok "boot-preseeded-flag: no omarchy-toggle WRITE at startup (got $n)"
+run_common_checks boot-preseeded-flag
+
+echo
+echo "== 18: write against a resolved-but-missing binary -> failed-start counted, no crash =="
+setup_scenario_env missing-binary yes
+run_scenario missing-binary
+json="$(get_json missing-binary)"
+report_json_line missing-binary "$json"
+[[ -n "$json" ]] && {
+  n="$(field "$json" writeFailedStartCount)"
+  [[ "${n:-0}" -ge 1 ]] && ok "missing-binary: a failed start is counted for the write process" \
+    || not_ok "missing-binary: a failed start is counted for the write process (got $n)"
+}
+run_common_checks missing-binary
+
+echo
+echo "== 19: tool resolution permanently fails -> gives up after three retries, logs the failure once =="
+setup_scenario_env tools-exhausted no
+run_scenario tools-exhausted
+json="$(get_json tools-exhausted)"
+report_json_line tools-exhausted "$json"
+[[ -n "$json" ]] && {
+  [[ "$(field "$json" togglePath)" == "" ]] && ok "tools-exhausted: togglePath stays unresolved" \
+    || not_ok "tools-exhausted: togglePath stays unresolved (got $(field "$json" togglePath))"
+}
+check_log_contains "$OUT_DIR/tools-exhausted.log" "omarchy-toggle: giving up after 3 retries" \
+  "tools-exhausted: toggle give-up logged"
+check_log_contains "$OUT_DIR/tools-exhausted.log" "omarchy-toggle-enabled: giving up after 3 retries" \
+  "tools-exhausted: toggle-enabled give-up logged"
+n1="$(grep -c 'omarchy-toggle not found on PATH' "$OUT_DIR/tools-exhausted.log" 2>/dev/null || true)"
+[[ "${n1:-0}" == "1" ]] && ok "tools-exhausted: toggle 'not found' logged exactly once, not per retry" \
+  || not_ok "tools-exhausted: toggle 'not found' logged exactly once (got $n1)"
+n2="$(grep -c 'omarchy-toggle-enabled not found on PATH' "$OUT_DIR/tools-exhausted.log" 2>/dev/null || true)"
+[[ "${n2:-0}" == "1" ]] && ok "tools-exhausted: toggle-enabled 'not found' logged exactly once, not per retry" \
+  || not_ok "tools-exhausted: toggle-enabled 'not found' logged exactly once (got $n2)"
+run_common_checks tools-exhausted
 
 echo
 if [[ "$fail_count" -eq 0 ]]; then

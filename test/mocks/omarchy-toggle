@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# test/mocks/omarchy-toggle -- PATH-shadowing mock. Writes or clears a flag
-# file under $HOME/.local/state/omarchy/toggles/. Argv: "<flag> on|off".
+# test/mocks/omarchy-toggle -- PATH-shadowing mock mirroring the real script's
+# case/usage contract. Writes or clears a flag file under
+# $HOME/.local/state/omarchy/toggles/. Argv: "<flag> [toggle|on|off]".
 set -uo pipefail
 
 TOGGLES_DIR="$HOME/.local/state/omarchy/toggles"
@@ -10,18 +11,35 @@ if [[ -n "${RISTRETTO_MOCK_TOGGLE_MODE_FILE:-}" && -s "${RISTRETTO_MOCK_TOGGLE_M
 fi
 
 if [[ -n "${RISTRETTO_MOCK_LOG:-}" ]]; then
-  echo "PID=$$ ARGV: omarchy-toggle $*" >> "$RISTRETTO_MOCK_LOG"
+  echo "PID=$$ TS=$(date +%s%N) ARGV: omarchy-toggle $*" >> "$RISTRETTO_MOCK_LOG"
 fi
 
-[[ "$MODE" == "hang" ]] && exec sleep 600
+# Ignored (not just the default disposition) so the real hang case exercises
+# the PID-guarded SIGKILL path -- a disposition set to ignore survives exec.
+[[ "$MODE" == "hang" ]] && { trap '' TERM; exec sleep 600; }
 [[ "$MODE" == "fail" ]] && exit 1
 
 flag="${1:-}"
-action="${2:-}"
-mkdir -p "$TOGGLES_DIR"
-if [[ "$action" == "on" ]]; then
-  touch "$TOGGLES_DIR/$flag"
-else
-  rm -f "$TOGGLES_DIR/$flag"
-fi
+action="${2:-toggle}"
+case "$action" in
+  toggle|"")
+    if [[ -f "$TOGGLES_DIR/$flag" ]]; then
+      rm -f "$TOGGLES_DIR/$flag"
+    else
+      mkdir -p "$TOGGLES_DIR"
+      touch "$TOGGLES_DIR/$flag"
+    fi
+    ;;
+  on)
+    mkdir -p "$TOGGLES_DIR"
+    touch "$TOGGLES_DIR/$flag"
+    ;;
+  off)
+    rm -f "$TOGGLES_DIR/$flag"
+    ;;
+  *)
+    echo "Usage: omarchy-toggle <flag-name> [toggle|on|off]" >&2
+    exit 1
+    ;;
+esac
 exit 0
