@@ -13,6 +13,9 @@ BarWidget {
   readonly property bool opened: panelLoader.item ? panelLoader.item.opened === true : false
   readonly property bool popoutSwitchClosing: panelLoader.item ? panelLoader.item.popoutSwitchClosing === true : false
 
+  // Debug-only, read by the UI probe harness -- production never reads this.
+  readonly property var _debugPanelItem: panelLoader.item
+
   // Stay awake is owned by omarchy.idle; bind, never cache. The cup steams
   // only while stay-awake keeps it hot, so the bar shows the state at a
   // glance without a separate indicator.

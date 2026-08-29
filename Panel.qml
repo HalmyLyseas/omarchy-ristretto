@@ -43,11 +43,14 @@ Panel {
   readonly property int screensaverIndex: Model.nearestIndex(Model.SCREENSAVER_STOPS, screensaverSeconds / 60)
   readonly property int lockIndex: Model.nearestIndex(Model.LOCK_STOPS, lockSeconds / 60)
 
-  // The plugin's own settings. The delay defaults to "never", so installing
-  // the plugin cannot change what the machine does until the user asks for it.
-  readonly property int sleepSeconds: Number(setting("sleepAfterIdleLock", Model.SLEEP_NEVER))
+  // The plugin's own settings, run through the same normalizers the service
+  // applies to its shellConfig read -- a hand-edited or legacy value must
+  // never look different from the bar than it behaves when it actually fires.
+  readonly property int sleepSeconds: Model.normalizeSleepSeconds(
+    setting("sleepAfterIdleLock", Model.SLEEP_NEVER),
+    ristrettoService ? ristrettoService.minSleepSeconds : 60).seconds
   readonly property int sleepIndex: Model.sleepIndexFor(sleepSeconds)
-  readonly property bool dryRun: setting("dryRun", false) === true
+  readonly property bool dryRun: Model.normalizeDryRun(setting("dryRun", false))
 
   // Stay awake is owned by omarchy.idle; bind, never cache.
   readonly property var idleService: bar && bar.shell ? bar.shell.firstPartyServiceFor("omarchy.idle") : null
@@ -181,6 +184,9 @@ Panel {
     focusSection = "stayawake"
   }
 
+  // Debug-only, read by the UI probe harness -- production never reads this.
+  readonly property var _debugContentItem: column
+
   // ------------------------------------------------------------------ UI
 
   KeyboardPanel {
@@ -234,6 +240,7 @@ Panel {
             Text {
               anchors.verticalCenter: parent.verticalCenter
               text: "STAY AWAKE"
+              textFormat: Text.PlainText
               color: root.dim
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption
@@ -299,6 +306,7 @@ Panel {
           Text {
             text: Model.minutesLabel(Model.SCREENSAVER_STOPS[
               screensaverSlider.dragging ? Math.round(screensaverSlider.liveValue) : root.screensaverIndex])
+            textFormat: Text.PlainText
             color: root.dim
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
@@ -361,6 +369,7 @@ Panel {
             id: lockValue
             text: Model.minutesLabel(Model.LOCK_STOPS[
               lockSlider.dragging ? Math.round(lockSlider.liveValue) : root.lockIndex])
+            textFormat: Text.PlainText
             color: root.dim
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
@@ -405,6 +414,7 @@ Panel {
           visible: root.delaysConflict
           width: parent.width
           text: "Stored lock delay is not above the screensaver delay; moving either slider repairs it."
+          textFormat: Text.PlainText
           wrapMode: Text.WordWrap
           color: root.dim
           font.family: root.fontFamily
@@ -438,6 +448,7 @@ Panel {
             id: sleepValue
             text: Model.sleepLabel(Model.SLEEP_STOPS[
               sleepSlider.dragging ? Math.round(sleepSlider.liveValue) : root.sleepIndex])
+            textFormat: Text.PlainText
             color: root.dim
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
