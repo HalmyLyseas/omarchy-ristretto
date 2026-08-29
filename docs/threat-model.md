@@ -19,10 +19,10 @@ assumes are enforced, and `docs/developers.md` for architecture detail.
 
 | Boundary | Guarded by |
 |---|---|
-| Host `lastEvent`/`locked`/`pendingSessionLock` (`omarchy.idle`/`omarchy.lock`) | The two-step latch on `lastEvent` (eligibility) plus the `originIdleSource.isIdle` check at the `secureLocked` rising edge (origin) — both must hold before `suspend()` is ever reachable. `pendingSessionLock` gates `secureLocked` itself: a request with no real screen behind it can never arm. |
+| Host `lastEvent`/`locked`/`pendingSessionLock` (`omarchy.idle`/`omarchy.lock`) | The two-step latch on `lastEvent` (eligibility) plus the `originIdleSource.isIdle` check at the `secureLocked` rising edge (origin) — both must hold before `suspend()` is ever reachable. `pendingSessionLock` holds `secureLocked` false: a request with no real screen behind it can never arm. |
 | `shell.json` values (`sleepAfterIdleLock`, `dryRun`, the idle entry) | `Model.normalizeSleepSeconds()`/`Model.normalizeDryRun()` and the `Array.isArray` guards in `Model.entryFor()` — a hostile or hand-edited value fails toward "never suspend", never toward a shorter or real one. |
 | Tool binaries (`omarchy-toggle`, `omarchy-toggle-enabled`) | Resolved once via `bash -lc "type -P <bin>"`, accepted only as an absolute path; every spawn after that is a direct `Process` child (never a shell string) with its own watchdog/kill pair. |
-| `systemctl suspend` | The plugin's one declared service-management capability — arming it is itself gated by the latch + origin + secure-edge checks above; `dryRun` swaps it for a log line and a notification. |
+| `systemctl suspend` | The plugin's one declared service-management capability — reachable only once the latch, origin, and secure-edge checks above all hold; `dryRun` swaps it for a log line and a notification. |
 | `~/.local/state/omarchy/toggles/` (user-writable state) | `togglesWatch`'s `FileView` never preloads, so a large or symlinked file at that path is never read into shell memory; only its change events are used. |
 
 ## What the plugin cannot do

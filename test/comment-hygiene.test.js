@@ -50,6 +50,7 @@ function commentRuns(file, text) {
 const STAGE_ID = /\b[SNCDFRTGHAB][0-9]{1,2}\b(?=[\s:;,.)\]/]|$)/;
 const FORBIDDEN = [
   { name: "exchange/", re: /exchange\// },
+  { name: "001/002-style doc reference", re: /\b00[12]\b|\b0\d{2}-[a-z]/ },
   { name: "scratchpad", re: /scratchpad/ },
   { name: "stage/finding id reference", re: STAGE_ID },
   { name: '"the human"', re: /\bthe human\b/ },
@@ -57,6 +58,13 @@ const FORBIDDEN = [
   { name: "Fable", re: /\bFable\b/ },
   { name: "Sonnet", re: /\bSonnet\b/ },
   { name: "codex", re: /(?<!openai-)\bcodex\b/i },
+  { name: "Navi", re: /\bNavi\b/ },
+  { name: '"review"', re: /\breview(ed|ing)?\b/i },
+  { name: '"gate"', re: /\bgate[sd]?\b/i },
+  { name: '"previously"', re: /\bpreviously\b/i },
+  { name: '"used to"', re: /\bused to\b/i },
+  { name: '"historical"', re: /\bhistorical(ly)?\b/i },
+  { name: '"finding(s)"', re: /\bfindings?\b/i },
   { name: "measured on this box", re: /measured (live )?on this box/ },
   { name: "project date", re: /\b202\d-\d{2}-\d{2}\b/ }
 ];
