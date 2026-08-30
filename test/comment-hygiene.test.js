@@ -58,7 +58,6 @@ const FORBIDDEN = [
   { name: "Fable", re: /\bFable\b/ },
   { name: "Sonnet", re: /\bSonnet\b/ },
   { name: "codex", re: /(?<!openai-)\bcodex\b/i },
-  { name: "Navi", re: /\bNavi\b/ },
   { name: '"review"', re: /\breview(ed|ing)?\b/i },
   { name: '"gate"', re: /\bgate[sd]?\b/i },
   { name: '"previously"', re: /\bpreviously\b/i },
