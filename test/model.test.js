@@ -120,6 +120,25 @@ test("LOCK_STOPS min (2) is above SCREENSAVER_STOPS min (1) -- screensaverIndexB
   assert.ok(lockMin > ssMin)
 })
 
+test("ORIGIN_IDLE_TIMEOUT_SECONDS is pinned to 30", function () {
+  assert.strictEqual(Model.ORIGIN_IDLE_TIMEOUT_SECONDS, 30)
+})
+
+// A screensaver launch's own notifier reset must have expired by the time
+// an idle lock is announced, so the smallest clamp-reachable screensaver->
+// lock gap has to stay at least twice the origin monitor's window.
+test("smallest clamp-reachable screensaver->lock gap is at least 2x ORIGIN_IDLE_TIMEOUT_SECONDS", function () {
+  var minGapSeconds = Infinity
+  Model.SCREENSAVER_STOPS.forEach(function (ss) {
+    Model.LOCK_STOPS.forEach(function (lock) {
+      if (lock > ss) minGapSeconds = Math.min(minGapSeconds, (lock - ss) * 60)
+    })
+  })
+  assert.strictEqual(minGapSeconds, 60)
+  assert.ok(minGapSeconds >= 2 * Model.ORIGIN_IDLE_TIMEOUT_SECONDS,
+    "min gap " + minGapSeconds + "s is not >= 2x timeout (" + (2 * Model.ORIGIN_IDLE_TIMEOUT_SECONDS) + "s)")
+})
+
 test("SLEEP_STOPS: positive stops strictly increasing, last element is SLEEP_NEVER", function () {
   var stops = Model.SLEEP_STOPS
   var positive = stops.slice(0, -1)

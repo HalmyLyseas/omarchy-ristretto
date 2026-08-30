@@ -537,6 +537,44 @@ n2="$(grep -c 'omarchy-toggle-enabled not found on PATH' "$OUT_DIR/tools-exhaust
 run_common_checks tools-exhausted
 
 echo
+echo "== 20: real host sequence -- lock's own spawn resets idle before the locked edge, sample still arms =="
+setup_scenario_env lock-spawn-resets-idle yes
+run_scenario lock-spawn-resets-idle
+json="$(get_json lock-spawn-resets-idle)"
+report_json_line lock-spawn-resets-idle "$json"
+[[ -n "$json" ]] && {
+  n="$(mock_call_count "$OUT_DIR/lock-spawn-resets-idle.mock.log" "ARGV: systemctl suspend")"
+  [[ "$n" == "0" ]] && ok "lock-spawn-resets-idle: systemctl never called (dry run)" \
+    || not_ok "lock-spawn-resets-idle: systemctl never called (dry run) (got $n)"
+}
+check_log_contains "$OUT_DIR/lock-spawn-resets-idle.log" "live idle at settle: false" \
+  "lock-spawn-resets-idle: settle observed the reset (live idle false)"
+check_log_contains "$OUT_DIR/lock-spawn-resets-idle.log" "armed: suspend" \
+  "lock-spawn-resets-idle: armed on the announcement's sample"
+check_log_contains "$OUT_DIR/lock-spawn-resets-idle.log" "DRY RUN -- would suspend now" \
+  "lock-spawn-resets-idle: dry-run fire logged"
+run_common_checks lock-spawn-resets-idle
+
+echo
+echo "== 21: isIdle false at announce, true at settle -- the sample wins, not the live value =="
+setup_scenario_env sample-wins-over-live yes
+run_scenario sample-wins-over-live
+json="$(get_json sample-wins-over-live)"
+report_json_line sample-wins-over-live "$json"
+[[ -n "$json" ]] && {
+  [[ "$(field "$json" idleLockPending)" == "false" ]] && ok "sample-wins-over-live: idleLockPending cleared" \
+    || not_ok "sample-wins-over-live: idleLockPending cleared"
+  n="$(mock_call_count "$OUT_DIR/sample-wins-over-live.mock.log" "ARGV: systemctl suspend")"
+  [[ "$n" == "0" ]] && ok "sample-wins-over-live: systemctl never called" \
+    || not_ok "sample-wins-over-live: systemctl never called (got $n)"
+}
+check_log_contains "$OUT_DIR/sample-wins-over-live.log" "live idle at settle: true" \
+  "sample-wins-over-live: settle observed the live flip (true)"
+check_log_contains "$OUT_DIR/sample-wins-over-live.log" "treating as manual, not arming" \
+  "sample-wins-over-live: not armed despite the live flip"
+run_common_checks sample-wins-over-live
+
+echo
 if [[ "$fail_count" -eq 0 ]]; then
   echo "test/probe/run: ALL CHECKS PASSED ($pass_count ok)"
 else

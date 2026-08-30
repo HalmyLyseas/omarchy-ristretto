@@ -21,6 +21,11 @@ var SLEEP_MAX_SECONDS = 86400
 // checks the installed package meets it. Bump only after testing live.
 var SUPPORTED_OMARCHY_MIN = "4.0.1"
 
+// The origin IdleMonitor's window, read by Service.qml's IdleMonitor.timeout.
+// Must stay well under the smallest reachable screensaver-to-lock gap --
+// see the invariant test in test/model.test.js and docs/developers.md.
+var ORIGIN_IDLE_TIMEOUT_SECONDS = 30
+
 // Nearest stop to an arbitrary value. Omarchy's defaults (screensaver 150s =
 // 2.5min) do not sit on our scale, so the panel snaps the *display* without
 // writing anything back.

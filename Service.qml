@@ -53,9 +53,15 @@ Item {
   property bool idleLockPending: false
   property bool idleLockAnnounced: false
 
+  // The origin verdict, fixed the instant the host announces the lock --
+  // before its own spawn can touch the notifier. See originSettle below;
+  // cleared everywhere idleLockPending clears, so it never outlives a latch.
+  property bool originIdleAtAnnounce: false
+
   onIdleEventChanged: {
     if (idleEvent.indexOf("lock-system") === 0) {
       root.idleLockAnnounced = true
+      root.originIdleAtAnnounce = !!(root.originIdleSource && root.originIdleSource.isIdle === true)
       return
     }
     if (root.idleLockAnnounced) {
@@ -65,6 +71,7 @@ Item {
         latchExpiry.restart()
         log("idle lock spawn confirmed (" + idleEvent + ")")
       } else {
+        root.originIdleAtAnnounce = false
         log("idle lock announced but no spawn (" + idleEvent + ") -- not latching")
       }
       return
@@ -74,6 +81,7 @@ Item {
     if (idleEvent.indexOf("process-exit: lock") === 0
         && root.idleLockPending && !root.locked) {
       root.idleLockPending = false
+      root.originIdleAtAnnounce = false
       latchExpiry.stop()
       log("idle lock process exited without locking -- latch dropped")
     }
@@ -106,6 +114,7 @@ Item {
       originSettle.stop()
       suspendTimer.stop()
       root.idleLockPending = false
+      root.originIdleAtAnnounce = false
     }
   }
 
@@ -128,7 +137,7 @@ Item {
   IdleMonitor {
     id: originMonitor
     enabled: true
-    timeout: 30
+    timeout: Model.ORIGIN_IDLE_TIMEOUT_SECONDS
     respectInhibitors: false
   }
 
@@ -136,9 +145,9 @@ Item {
   // compositor idle state cannot be scripted. Production never assigns it.
   property var originIdleSource: originMonitor
 
-  // Judged a beat after the edge, not at it, since the resume event behind
-  // a manual lock's own keypress can still be in flight when the lock
-  // itself lands. Detail: docs/developers.md.
+  // Waits a beat past the edge for a manual lock's own keypress to have a
+  // resume event land, but the verdict is already fixed at the announcement
+  // (originIdleAtAnnounce) -- live isIdle here is only a log line.
   Timer {
     id: originSettle
     interval: 1000
@@ -146,6 +155,7 @@ Item {
     onTriggered: {
       if (root.stayAwake) {
         root.idleLockPending = false
+        root.originIdleAtAnnounce = false
         log("stay-awake enabled during origin settle -- not arming")
         return
       }
@@ -154,9 +164,11 @@ Item {
             (!root.locked ? "unlocked" : (!root.secureLocked ? "insecure" : "latch cleared")) + ")")
         return
       }
-      if (!(root.originIdleSource && root.originIdleSource.isIdle === true)) {
+      log("live idle at settle: " + !!(root.originIdleSource && root.originIdleSource.isIdle === true))
+      if (!root.originIdleAtAnnounce) {
         root.idleLockPending = false
-        log("input seen at the lock edge -- treating as manual, not arming")
+        root.originIdleAtAnnounce = false
+        log("input seen at the lock announcement -- treating as manual, not arming")
         return
       }
       if (!root.armable) {
@@ -189,6 +201,7 @@ Item {
     onTriggered: {
       if (root.idleLockPending && !root.locked) {
         root.idleLockPending = false
+        root.originIdleAtAnnounce = false
         log("idle lock announced but nothing locked -- latch dropped")
       }
     }
@@ -949,6 +962,7 @@ Item {
       latchExpiry.stop()
       root.idleLockPending = false
       root.idleLockAnnounced = false
+      root.originIdleAtAnnounce = false
       if (hadState) log("omarchy.idle service lost -- countdown cancelled, latch cleared")
     }
   }
@@ -960,6 +974,7 @@ Item {
       latchExpiry.stop()
       root.idleLockPending = false
       root.idleLockAnnounced = false
+      root.originIdleAtAnnounce = false
       if (hadState2) log("omarchy.lock service lost -- countdown cancelled, latch cleared")
     }
   }

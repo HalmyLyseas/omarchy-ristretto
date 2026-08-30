@@ -215,6 +215,8 @@ ShellRoot {
     if (scenario === "armed-fire") return scenarioArmedFire()
     if (scenario === "dryrun-fire") return scenarioDryrunFire()
     if (scenario === "manual-lock") return scenarioManualLock()
+    if (scenario === "lock-spawn-resets-idle") return scenarioLockSpawnResetsIdle()
+    if (scenario === "sample-wins-over-live") return scenarioSampleWinsOverLive()
     if (scenario === "lock-no-spawn") return scenarioLockNoSpawn()
     if (scenario === "spawn-exit-before-lock") return scenarioSpawnExitBeforeLock()
     if (scenario === "latch-expiry") return scenarioLatchExpiry()
@@ -258,6 +260,43 @@ ShellRoot {
     after(50, function () {
       driveSecureIdleLock(function () {
         after(1300, finishNow)
+      })
+    })
+  }
+
+  // The real host sequence: the compositor is idle when the lock is
+  // announced, then the lock's own spawn resets the notifier before the
+  // locked edge -- the sample taken at the announcement must still arm.
+  function scenarioLockSpawnResetsIdle() {
+    originStub.isIdle = true
+    setConfig({ sleepAfterIdleLock: 1, dryRun: true })
+    after(50, function () {
+      fireLockSystem("idle-timeout")
+      fireProcessStartLock()
+      after(100, function () {
+        originStub.isIdle = false
+        lockStub.pendingSessionLock = true
+        lockStub.locked = true
+        after(150, function () {
+          lockStub.pendingSessionLock = false
+          after(2600, finishNow)
+        })
+      })
+    })
+  }
+
+  // isIdle is false at the announcement (a manual lock's own sample), then
+  // flips true well before origin settle fires -- the fixed sample must
+  // still win over the live reading, so this must not arm either.
+  function scenarioSampleWinsOverLive() {
+    originStub.isIdle = false
+    setConfig({ sleepAfterIdleLock: 1, dryRun: true })
+    after(50, function () {
+      driveSecureIdleLock(function () {
+        after(200, function () {
+          originStub.isIdle = true
+          after(1500, finishNow)
+        })
       })
     })
   }
