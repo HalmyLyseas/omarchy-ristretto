@@ -21,7 +21,7 @@ assumes are enforced, and `docs/developers.md` for architecture detail.
 
 | Boundary | Guarded by |
 |---|---|
-| Host `lastEvent`/`locked`/`pendingSessionLock` (`omarchy.idle`/`omarchy.lock`) | The two-step latch on `lastEvent` (eligibility) plus the `originIdleSource.isIdle` check at the `secureLocked` rising edge (origin) — both must hold before `suspend()` is ever reachable. `pendingSessionLock` holds `secureLocked` false: a request with no real screen behind it can never arm. |
+| Host `lastEvent`/`locked`/`pendingSessionLock` (`omarchy.idle`/`omarchy.lock`) | The two-step latch on `lastEvent` (eligibility) plus `originIdleAtAnnounce` — `originIdleSource.isIdle` sampled synchronously at the `lock-system` announcement, before the lock's own spawn can touch the notifier (origin) — both must hold before `suspend()` is ever reachable. `pendingSessionLock` holds `secureLocked` false: a request with no real screen behind it can never arm. |
 | `shell.json` values (`sleepAfterIdleLock`, `dryRun`, the idle entry) | `Model.normalizeSleepSeconds()`/`Model.normalizeDryRun()` and the `Array.isArray` guards in `Model.entryFor()` — a hostile or hand-edited value fails toward "never suspend", never toward a shorter or real one. |
 | Tool binaries (`omarchy-toggle`, `omarchy-toggle-enabled`) | Resolved once via `bash -lc "type -P <bin>"`, accepted only as an absolute path; every spawn after that is a direct `Process` child (never a shell string) with its own watchdog/kill pair. |
 | `systemctl suspend` | The plugin's one declared service-management capability — reachable only once the latch, origin, and secure-edge checks above all hold; `dryRun` swaps it for a log line and a notification. |
@@ -50,6 +50,13 @@ assumes are enforced, and `docs/developers.md` for architecture detail.
   the origin check the same way a real idle lock would, because the check
   can only observe input, not intent. Accepted: the bias is toward never
   missing a real idle lock's origin at the cost of this narrow edge case.
+- **A keypress-triggered manual lock landing in the sub-second window
+  between an in-flight idle lock's `lock-system` announcement and its own
+  edge could inherit that idle lock's sample.** Narrow: the announcement
+  and the secure edge are normally milliseconds apart, and a bound user
+  who wins this race still only gets the delay already configured, with
+  every unlock cancelling the countdown outright — the 60s+ minimum gap
+  to the next idle lock and the unlock-cancels rule bound the harm.
 - **The screensaver switch's optimistic write can briefly disagree with
   the watcher.** A flip is applied to the UI before the write completes,
   and reconciled on exit if it failed; a rapid second click during that

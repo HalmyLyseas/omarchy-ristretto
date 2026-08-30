@@ -33,17 +33,25 @@ state) for the probe harnesses below; production code never reads them.
   `process-exit: lock` while still unlocked drops the latch, and a 3s
   expiry catches a spawn that dies silently. A `lock-system` that lands
   while the session is *already* locked sets the latch but can never fire,
-  since `locked` has no rising edge left. The second check is origin,
-  decided at the `secureLocked` rising edge itself, because `locked` is
-  shared and a manual lock can win the race against an in-flight idle
-  lock: a plugin-owned `IdleMonitor` (raw input, 30s window — well under
-  the 2-minute minimum lock stop) must report the user idle, judged one
-  second after the edge so the compositor resume event from a manual
-  lock's own keypress has time to arrive. A manual lock is input, so it
-  can never pass this check, whatever raised the edge. The bias is
-  explicit: missing a real idle lock fails safe (no suspend); claiming a
-  manual one must never happen. `lastEvent`'s wording dependency and the
-  one intentional gap this leaves are in `docs/threat-model.md`.
+  since `locked` has no rising edge left. The second check is origin, and
+  it is sampled synchronously at the `lock-system` announcement itself
+  (`originIdleAtAnnounce`), not read live at the `secureLocked` edge: an
+  idle lock's own screen coming up resets the compositor's idle notifier
+  within about a second of its secure edge, so a plugin-owned `IdleMonitor`
+  (raw input, `Model.ORIGIN_IDLE_TIMEOUT_SECONDS` = 30s — well under the
+  2-minute minimum lock stop) read there would misjudge every real idle
+  lock as manual. `originSettle`, one second after the secure edge, acts
+  on that fixed sample; the live `isIdle` value at settle time is only
+  logged (`"live idle at settle: …"`), never checked. A manual lock's own
+  keypress precedes its `lock-system` announcement, so the sample still
+  catches it. The bias is explicit: missing a real idle lock fails safe
+  (no suspend); claiming a manual one must never happen. This sampling
+  point relies on a screensaver launch's own notifier reset having
+  expired well before the next `lock-system` announcement — the smallest
+  clamp-reachable screensaver-to-lock gap (60s) is pinned at least twice
+  `ORIGIN_IDLE_TIMEOUT_SECONDS` by a `test/model.test.js` invariant.
+  `lastEvent`'s wording dependency and the one intentional gap this
+  leaves are in `docs/threat-model.md`.
 - **`secureLocked`, not `locked`, is the arming signal.** `locked` rises as
   soon as a lock is *requested*; with no real screen behind it,
   `pendingSessionLock` can stay true forever. `secureLocked` is
