@@ -3,7 +3,7 @@
 Notable user-facing changes, newest first. Unreleased changes are not yet a
 marketplace release; the manifest remains at the last released version.
 
-## Unreleased
+## 1.1.1-rc.1 — 2026-09-09
 
 ### Fixed
 
