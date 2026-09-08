@@ -317,6 +317,7 @@ ShellRoot {
     if (scenario === "spawn-exit-before-lock") return scenarioSpawnExitBeforeLock()
     if (scenario === "latch-expiry") return scenarioLatchExpiry()
     if (scenario === "never-secure") return scenarioNeverSecure()
+    if (scenario === "never-secure-late") return scenarioNeverSecureLate()
     if (scenario === "unlock-mid-countdown") return scenarioUnlockMidCountdown()
     if (scenario === "delay-change-mid-countdown") return scenarioDelayChangeMidCountdown()
     if (scenario === "stayawake-settle-and-fire") return scenarioStayAwakeSettleAndFire()
@@ -416,6 +417,7 @@ ShellRoot {
     })
   }
 
+
   function scenarioLatchExpiry() {
     fireLockSystem("idle-timeout")
     after(50, function () {
@@ -433,6 +435,20 @@ ShellRoot {
       lockStub.locked = true
       // pendingSessionLock is never cleared -- requested but never secured.
       after(2000, finishNow)
+    })
+  }
+
+  function scenarioNeverSecureLate() {
+    setConfig({ sleepAfterIdleLock: 5 })
+    fireLockSystem("idle-timeout")
+    after(50, function () {
+      fireProcessStartLock()
+      lockStub.pendingSessionLock = true
+      lockStub.locked = true
+      after(3500, function () {
+        lockStub.pendingSessionLock = false
+        after(700, finishNow)
+      })
     })
   }
 

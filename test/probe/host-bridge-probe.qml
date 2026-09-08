@@ -21,6 +21,7 @@ ShellRoot {
     event("idle", "lock-system: lock-timeout")
     event("idle", "process-start: lock omarchy-system-lock")
     event("lock", "lock-requested")
+    if (mode === "omitted-lock-state") event("idle", "process-exit: lock exitCode=0 status=0")
     if (mode !== "omitted-lock-state") event("lock", "session-locked=true")
     event("lock", "secure=true")
   }

@@ -20,6 +20,7 @@ ShellRoot {
     event("idle", "lock-system: lock-timeout")
     event("idle", "process-start: lock omarchy-system-lock")
     event("lock", "lock-requested")
+    event("idle", "process-exit: lock exitCode=0 status=0")
     event("lock", "secure=true")
   }
   function finish() {

@@ -295,6 +295,21 @@ check_log_not_contains "$OUT_DIR/never-secure.log" "armed: suspend" "never-secur
 run_common_checks never-secure
 
 echo
+echo "== 7b: secure edge after latch expiry never arms =="
+setup_scenario_env never-secure-late yes
+run_scenario never-secure-late
+json="$(get_json never-secure-late)"
+report_json_line never-secure-late "$json"
+[[ -n "$json" ]] && {
+  [[ "$(field "$json" idleLockPending)" == "false" ]] && ok "never-secure-late: latch expired" \
+    || not_ok "never-secure-late: latch expired"
+  n="$(mock_call_count "$OUT_DIR/never-secure-late.mock.log" "ARGV: systemctl suspend")"
+  [[ "$n" == "0" ]] && ok "never-secure-late: systemctl never called" || not_ok "never-secure-late: systemctl never called (got $n)"
+}
+check_log_not_contains "$OUT_DIR/never-secure-late.log" "armed: suspend" "never-secure-late: late secure never armed"
+run_common_checks never-secure-late
+
+echo
 echo "== 8: unlock mid-countdown -> cancelled; systemctl never called =="
 setup_scenario_env unlock-mid-countdown yes
 run_scenario unlock-mid-countdown

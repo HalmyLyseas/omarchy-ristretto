@@ -181,7 +181,7 @@ Item {
   onLockedChanged: {
     if (root.scopedHost) return
     if (locked) {
-      latchExpiry.stop()
+      if (root.secureLocked) latchExpiry.stop()
       if (!root.idleLockPending) {
         log("locked, but not by idle -- not arming")
         return
@@ -288,7 +288,7 @@ Item {
     interval: 3000
     repeat: false
     onTriggered: {
-      if (root.idleLockPending && !root.locked) {
+      if (root.idleLockPending && !root.secureLocked) {
         root.idleLockPending = false
         root.originIdleAtAnnounce = false
         log("idle lock announced but nothing locked -- latch dropped")

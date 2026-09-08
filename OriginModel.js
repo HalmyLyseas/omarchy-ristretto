@@ -113,6 +113,11 @@ function parseHostLine(line) {
     result.type = "idle-process-start"
   } else if (outer[1] === "idle" && match[1] === "process-exit" && /^lock(?:\s|$)/.test(text)) {
     result.type = "idle-process-exit"
+    var exit = text.match(/^lock exitCode=(\d+) status=(\d+)$/)
+    if (exit) {
+      result.exitCode = Number(exit[1])
+      result.exitStatus = Number(exit[2])
+    }
   } else if (outer[1] === "idle" && match[1] === "process-skip" && /^lock(?:\s|$)/.test(text)) {
     result.type = "idle-process-skip"
   } else if (outer[1] === "idle" && match[1] === "stay-awake") {
@@ -202,6 +207,9 @@ function applyEvent(state, event, options) {
     candidate.phase = "requested"; candidate.requestedAt = time; next.candidate = candidate; return next
   }
   if (event.type === "idle-process-exit" || event.type === "idle-process-skip") {
+    if (event.type === "idle-process-exit" && next.candidate &&
+        next.candidate.phase === "requested" && event.exitCode === 0 && event.exitStatus === 0)
+      return next
     if (next.candidate && next.candidate.phase !== "secure") return clearCandidate(next, "spawn failed")
     return next
   }

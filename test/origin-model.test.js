@@ -146,6 +146,43 @@ test('secure edge supplies locked evidence when host omits session-locked event'
   assert.equal(Model.isEligible(s), true)
 })
 
+test('successful lock helper exit before secure does not cancel the origin attempt', () => {
+  let s = Model.recordIdle(Model.createState(), { wallMs: 1000, monoMs: 1000, idle: true }, cfg)
+  const lines = [
+    ' DEBUG qml: omarchy idle 1970-01-01T00:00:01.100Z lock-system: lock-timeout',
+    ' DEBUG qml: omarchy idle 1970-01-01T00:00:01.110Z process-start: lock omarchy-system-lock',
+    ' DEBUG qml: omarchy lock 1970-01-01T00:00:01.120Z lock-requested',
+    ' DEBUG qml: omarchy idle 1970-01-01T00:00:01.130Z process-exit: lock exitCode=0 status=0',
+    ' DEBUG qml: omarchy lock 1970-01-01T00:00:01.158Z secure=true'
+  ]
+  for (const line of lines) s = Model.applyEvent(s, Model.parseHostLine(line), cfg)
+  assert.equal(Model.isEligible(s), true)
+  const parsed = Model.parseHostLine(lines[3])
+  assert.equal(parsed.exitCode, 0); assert.equal(parsed.exitStatus, 0)
+})
+
+test('requested-phase failed or malformed process exit cancels before secure', () => {
+  function setup() {
+    let s = Model.recordIdle(Model.createState(), { wallMs: 1000, monoMs: 1000, idle: true }, cfg)
+    s = Model.applyEvent(s, Model.parseHostLine(' DEBUG qml: omarchy idle 1970-01-01T00:00:01.100Z lock-system: lock-timeout'), cfg)
+    s = Model.applyEvent(s, Model.parseHostLine(' DEBUG qml: omarchy idle 1970-01-01T00:00:01.110Z process-start: lock'), cfg)
+    return Model.applyEvent(s, Model.parseHostLine(' DEBUG qml: omarchy lock 1970-01-01T00:00:01.120Z lock-requested'), cfg)
+  }
+  let failed = Model.applyEvent(setup(), Model.parseHostLine(' DEBUG qml: omarchy idle 1970-01-01T00:00:01.130Z process-exit: lock exitCode=1 status=0'), cfg)
+  failed = Model.applyEvent(failed, Model.parseHostLine(' DEBUG qml: omarchy lock 1970-01-01T00:00:01.140Z secure=true'), cfg)
+  assert.equal(Model.isEligible(failed), false)
+  let malformed = Model.applyEvent(setup(), Model.parseHostLine(' DEBUG qml: omarchy idle 1970-01-01T00:00:01.130Z process-exit: lock exitCode=0'), cfg)
+  malformed = Model.applyEvent(malformed, Model.parseHostLine(' DEBUG qml: omarchy lock 1970-01-01T00:00:01.140Z secure=true'), cfg)
+  assert.equal(Model.isEligible(malformed), false)
+  let badStatus = Model.applyEvent(setup(), Model.parseHostLine(' DEBUG qml: omarchy idle 1970-01-01T00:00:01.130Z process-exit: lock exitCode=0 status=1'), cfg)
+  badStatus = Model.applyEvent(badStatus, Model.parseHostLine(' DEBUG qml: omarchy lock 1970-01-01T00:00:01.140Z secure=true'), cfg)
+  assert.equal(Model.isEligible(badStatus), false)
+
+  let late = Model.applyEvent(setup(), Model.parseHostLine(' DEBUG qml: omarchy idle 1970-01-01T00:00:01.130Z process-exit: lock exitCode=0 status=0'), cfg)
+  late = Model.applyEvent(late, Model.parseHostLine(' DEBUG qml: omarchy lock 1970-01-01T00:00:04.200Z secure=true'), cfg)
+  assert.equal(Model.isEligible(late), false)
+})
+
 test('typed parser rejects screensaver spawn and handles false lock state', () => {
   assert.equal(Model.parseHostLine(' DEBUG qml: omarchy idle 1970-01-01T00:00:01.110Z process-start: screensaver'), null)
   const unlocked = Model.parseHostLine(' DEBUG qml: omarchy lock 1970-01-01T00:00:01.121Z session-locked=false')
