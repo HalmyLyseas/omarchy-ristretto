@@ -384,13 +384,13 @@ check_log_contains "$OUT_DIR/sleep-normalize.log" "sleepAfterIdleLock exceeded t
 run_common_checks sleep-normalize
 
 echo
-echo "== 13: string-form config entry -> the 15s warning (shortened via configEntryCheckMs) =="
+echo "== 13: string-form config entry -> explicit missing-entry diagnostic =="
 setup_scenario_env string-entry-warning yes
 run_scenario string-entry-warning
 json="$(get_json string-entry-warning)"
 report_json_line string-entry-warning "$json" > /dev/null
-check_log_contains "$OUT_DIR/string-entry-warning.log" "no config entry found -- settings cannot persist" \
-  "string-entry-warning: warning logged"
+check_log_contains "$OUT_DIR/string-entry-warning.log" "settings unavailable: missing own entry" \
+  "string-entry-warning: missing-entry diagnostic logged"
 run_common_checks string-entry-warning
 
 echo
@@ -573,6 +573,44 @@ check_log_contains "$OUT_DIR/sample-wins-over-live.log" "live idle at settle: tr
 check_log_contains "$OUT_DIR/sample-wins-over-live.log" "treating as manual, not arming" \
   "sample-wins-over-live: not armed despite the live flip"
 run_common_checks sample-wins-over-live
+
+echo
+echo "== 22: installed PluginShellApi barConfig snapshot drives settings and refreshes =="
+setup_scenario_env facade-round-trip yes
+run_scenario facade-round-trip
+json="$(get_json facade-round-trip)"
+report_json_line facade-round-trip "$json"
+[[ -n "$json" ]] && {
+  [[ "$(field "$json" facadeChecks.before.sleep)" == "600" ]] && ok "facade-round-trip: initial snapshot sleep is 600s" \
+    || not_ok "facade-round-trip: initial snapshot sleep is 600s (got $(field "$json" facadeChecks.before.sleep))"
+  [[ "$(field "$json" facadeChecks.refreshed.sleep)" == "300" ]] && ok "facade-round-trip: host replacement refreshes sleep to 300s" \
+    || not_ok "facade-round-trip: host replacement refreshes sleep to 300s (got $(field "$json" facadeChecks.refreshed.sleep))"
+  [[ "$(field "$json" facadeChecks.refreshed.dry)" == "false" && "$(field "$json" facadeChecks.refreshed.sibling)" == "kept" ]] && ok "facade-round-trip: dryRun and sibling survive replacement" \
+    || not_ok "facade-round-trip: dryRun and sibling survive replacement"
+  [[ "$(field "$json" facadeChecks.malformed.sleep)" == "-1" && "$(field "$json" facadeChecks.malformed.dry)" == "false" ]] && ok "facade-round-trip: malformed values fail safe" \
+    || not_ok "facade-round-trip: malformed values fail safe"
+  [[ "$(field "$json" facadeChecks.removed.sleep)" == "-1" && "$(field "$json" facadeChecks.removed.diagnostic)" == "missing own entry" ]] && ok "facade-round-trip: removal clears settings without stale fallback" \
+    || not_ok "facade-round-trip: removal clears settings without stale fallback"
+  [[ "$(field "$json" facadeChecks.reappeared.sleep)" == "180" && "$(field "$json" facadeChecks.recreated.sleep)" == "180" ]] && ok "facade-round-trip: reappearance and shell recreation refresh settings" \
+    || not_ok "facade-round-trip: reappearance and shell recreation refresh settings"
+}
+run_common_checks facade-round-trip
+
+echo
+echo "== 23: configured delay stays fail-safe when facade idle/lock capabilities disappear =="
+setup_scenario_env facade-missing-capability yes
+run_scenario facade-missing-capability
+json="$(get_json facade-missing-capability)"
+report_json_line facade-missing-capability "$json"
+[[ -n "$json" ]] && {
+  [[ "$(field "$json" sleepSeconds)" == "300" ]] && ok "facade-missing-capability: configured sleep remains visible" \
+    || not_ok "facade-missing-capability: configured sleep remains visible (got $(field "$json" sleepSeconds))"
+  [[ "$(field "$json" armable)" == "false" ]] && ok "facade-missing-capability: armable is false" \
+    || not_ok "facade-missing-capability: armable is false (got $(field "$json" armable))"
+}
+run_common_checks facade-missing-capability
+check_log_contains "$OUT_DIR/facade-missing-capability.log" "suspend unavailable: missing idle/lock capability" \
+  "facade-missing-capability: capability diagnostic is explicit"
 
 echo
 if [[ "$fail_count" -eq 0 ]]; then

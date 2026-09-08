@@ -36,7 +36,7 @@ jobs:
           # provides `ps`; jq is what usr/share/omarchy/bin/
           # omarchy-plugin-validate itself needs. No CLI beyond that --
           # every external tool this plugin spawns is mocked in test/mocks.
-          pacman -Syu --noconfirm quickshell cage nodejs procps-ng jq
+          pacman -Syu --noconfirm quickshell cage nodejs python procps-ng jq
 
       - name: Extract the Omarchy shell QML tree and plugin-validate script
         run: |
@@ -88,6 +88,9 @@ jobs:
       - name: Node unit tests (Model.js, QML Text-sink audit, comment hygiene)
         run: node --test test/*.test.js
 
+      - name: Idle writer tests
+        run: python3 test/idle-writer.test.py
+
       - name: Host contract (read-only pin against the extracted shell tree)
         run: node test/host-contract.mjs
 
@@ -102,3 +105,7 @@ jobs:
           mkdir -p "$XDG_RUNTIME_DIR" && chmod 700 "$XDG_RUNTIME_DIR"
           cage -- bash test/probe/run
           cage -- bash test/probe/run-ui
+          for probe in test/probe/run-*; do
+            [[ "$probe" == */run-ui ]] && continue
+            cage -- bash "$probe"
+          done

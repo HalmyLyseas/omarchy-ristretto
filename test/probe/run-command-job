@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+set -uo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PLUGIN_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+QS_BIN="$(command -v qs)"
+MOCK="$PLUGIN_DIR/test/mocks/command-job"
+OUT="$(mktemp -d)"
+trap 'rm -rf "$OUT"' EXIT
+fail=0
+run_case() {
+  local mode="$1"; local log="$OUT/$mode.log"; local executable="$MOCK"
+  [[ "$mode" == missing ]] && executable="$OUT/not-found"
+  COMMAND_JOB_MODE="$mode" COMMAND_JOB_EXECUTABLE="$executable" RISTRETTO_PLUGIN_DIR="$PLUGIN_DIR" \
+    COMMAND_JOB_PID_FILE="$OUT/$mode.pid" \
+    QT_QPA_PLATFORM=minimal PATH="$(dirname "$MOCK"):/usr/bin:/bin" timeout 4 "$QS_BIN" -n -p "$PLUGIN_DIR/test/probe/command-job-probe.qml" >"$log" 2>&1
+  local code=$?
+  if [[ "$code" != 0 ]] || grep -Eq 'TypeError|ReferenceError|ERROR:' "$log" || ! grep -q 'COMMAND_JOB_RESULT' "$log"; then
+    echo "NOT OK - $mode (exit $code)"; cat "$log"; fail=$((fail + 1)); return
+  fi
+  if ! grep -q '"failed":0' "$log"; then echo "NOT OK - $mode checks"; cat "$log"; fail=$((fail + 1)); return; fi
+  if [[ "$mode" == timeout && -s "$OUT/$mode.pid" ]]; then
+    local pid; pid=$(cat "$OUT/$mode.pid")
+    if [[ -e "/proc/$pid" ]]; then echo "NOT OK - timeout child survived KILL (pid=$pid)"; fail=$((fail + 1)); return; fi
+  fi
+  echo "ok - $mode"
+}
+for mode in success malformed fail missing timeout flood stop reentrant; do run_case "$mode"; done
+exit "$fail"

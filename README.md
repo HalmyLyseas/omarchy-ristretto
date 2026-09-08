@@ -37,14 +37,14 @@ stay in sync with their CLI equivalents in both directions.
 
 ## Requirements
 
-Everything Ristretto needs ships with Omarchy itself — there are no
-third-party dependencies.
+Ristretto uses the installed Omarchy shell, Quickshell, and Python 3.
 
-- **Omarchy 4.0.1 or later (Quickshell 0.3.1).** The plugin binds the
-  first-party `omarchy.idle` and `omarchy.lock` shell services and builds
-  its UI from the shell's own component kit. If either service is
-  disabled, Ristretto degrades gracefully: the panel still renders and the
-  suspend timer simply never arms.
+- **Omarchy 4.0.1 or later, Quickshell 0.3.1.** Older hosts expose live
+  service bindings. On Omarchy 4.0.3, the plugin reads its own settings from
+  the scoped bar snapshot and uses IPC plus timestamped host logs for idle
+  and lock observations. Unavailable observations disable suspend safely.
+- **Python 3** for scoped-host delay edits. The helper updates only the
+  shared idle timing pair in `~/.config/omarchy/shell.json`; no root is needed.
 - **systemd-logind** for the suspend itself — `systemctl suspend` from the
   active session, no root and no polkit prompt.
 
@@ -67,7 +67,8 @@ or `Enter` flip a switch, `Esc` closes.
 
 The hero subtitle states what the machine will actually do — `SLEEP 5 MIN
 AFTER LOCK`, `SLEEP NEVER`, or `STAYING AWAKE` — so the armed behaviour is
-readable at a glance.
+readable at a glance. Unknown host state is shown as `IDLE STATUS UNAVAILABLE`
+or `SLEEP UNAVAILABLE`; shared controls wait for fresh state.
 
 One caveat worth knowing: video players and browsers that implement the
 Wayland idle-inhibit protocol pause the whole idle pipeline while they
@@ -122,15 +123,14 @@ delays are Omarchy's own and are left as you set them.
 ## Verify
 
 ```bash
-bash test/all               # unit, host-contract, hygiene, sinks, and both qs probes
+bash test/all               # unit, contract, writer, and real QML probes
 omarchy plugin validate .    # manifest + security-baseline checks
 ```
 
-`bash test/all`'s unit and hygiene suites need only plain Node; the two
-`qs`-driven probes and the host-contract check skip themselves cleanly
-when there's no live shell tree or Quickshell session to run against.
-`bash test/ci-local [--no-cage]` runs the full set for real, the same way
-`.github/workflows/test.yml` does on every push and pull request.
+The tests need Node, Python 3, Quickshell, and the installed Omarchy shell
+components. `bash test/ci-local [--no-cage]` adds lint and validation and
+runs the QML probes under a headless compositor by default. All mutating
+commands in the probes are mocked; temporary files hold test configuration.
 
 ## Developing
 

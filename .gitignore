@@ -6,3 +6,7 @@
 *~
 *.swp
 .DS_Store
+
+# Python test/helper bytecode
+__pycache__/
+*.pyc

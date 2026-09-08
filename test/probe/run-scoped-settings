@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -uo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PLUGIN_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+QMLROOT="$(mktemp -d)"
+trap 'rm -rf "$QMLROOT"' EXIT
+mkdir -p "$QMLROOT"
+ln -s /usr/share/omarchy/shell "$QMLROOT/qs"
+mkdir -p "$QMLROOT/home" "$QMLROOT/bin"
+ln -s "$PLUGIN_DIR/test/mocks/omarchy-toggle" "$QMLROOT/bin/omarchy-toggle"
+ln -s "$PLUGIN_DIR/test/mocks/omarchy-toggle-enabled" "$QMLROOT/bin/omarchy-toggle-enabled"
+printf 'PATH="%s:/usr/bin:/bin"\n' "$QMLROOT/bin" > "$QMLROOT/home/.bash_profile"
+LOG="$QMLROOT/result.log"
+env RISTRETTO_PLUGIN_DIR="$PLUGIN_DIR" QML_IMPORT_PATH="$QMLROOT" HOME="$QMLROOT/home" PATH="$QMLROOT/bin:/usr/bin:/bin" \
+  timeout 25 qs -n -p "$PLUGIN_DIR/test/probe/scoped-settings-probe.qml" >"$LOG" 2>&1
+code=$?
+cat "$LOG"
+if [[ "$code" != 0 ]] || grep -Eq 'TypeError|ReferenceError|ERROR:' "$LOG"; then exit 1; fi
+json=$(grep -o 'SCOPED_SETTINGS_RESULT .*' "$LOG" | tail -n1 | sed 's/^SCOPED_SETTINGS_RESULT //')
+[[ -n "$json" ]] || exit 1
+node -e 'const x=JSON.parse(process.argv[1]); const need=["scoped host","initial sleep","initial sibling","entry merged","service follows barConfig","panel unavailable after destroy","panel follows recreated service"]; if(x.failed || need.some(n=>!(x.checks||[]).some(c=>c.name===n && c.pass))) process.exit(1)' "$json"

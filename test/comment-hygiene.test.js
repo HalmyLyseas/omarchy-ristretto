@@ -10,7 +10,7 @@ const assert = require("node:assert/strict");
 const ROOT = join(__dirname, "..");
 
 function shippedFiles() {
-  const out = execFileSync("git", ["ls-files"], { cwd: ROOT, encoding: "utf8" });
+  const out = execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard"], { cwd: ROOT, encoding: "utf8" });
   // .github/** would be CI-only infra, never installed on or run by a user's
   // machine -- exempt from this scan the same way docs/threat-model.md
   // documents, if this repo ever gains one.

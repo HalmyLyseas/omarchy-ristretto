@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+set -uo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PLUGIN_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+QS_REAL="$(command -v qs)"
+OUT="$(mktemp -d)"
+trap '[[ "${KEEP_SCOPED_SUSPEND:-0}" == 1 ]] || rm -rf "$OUT"' EXIT
+ln -s "$PLUGIN_DIR/test/mocks/qs-host-bridge" "$OUT/qs-host-bridge"
+ln -s "$PLUGIN_DIR/test/mocks/omarchy-notification-send" "$OUT/omarchy-notification-send"
+ln -s "$PLUGIN_DIR/test/mocks/systemctl" "$OUT/systemctl"
+ln -s "$PLUGIN_DIR/test/mocks/omarchy-toggle" "$OUT/omarchy-toggle"
+ln -s "$PLUGIN_DIR/test/mocks/omarchy-toggle-enabled" "$OUT/omarchy-toggle-enabled"
+
+run_case() {
+  local mode="$1" log="$OUT/$1.log" mocklog="$OUT/$1.mock"
+  local bridge_mode="eligible"; [[ "$mode" != success ]] && bridge_mode="unlock-pending"
+  mkdir -p "$OUT/home" "$OUT/runtime"
+  chmod 700 "$OUT/home" "$OUT/runtime"
+  printf 'PATH="%s:/usr/bin:/bin"\n' "$OUT" > "$OUT/home/.bash_profile"
+  HOST_BRIDGE_MODE="$bridge_mode" SCOPED_SUSPEND_MODE="$mode" SCOPED_SUSPEND_QS="$OUT/qs-host-bridge" \
+    HOST_BRIDGE_LOG="$OUT/$1.host" RISTRETTO_MOCK_LOG="$mocklog" \
+    RISTRETTO_PLUGIN_DIR="$PLUGIN_DIR" HOME="$OUT/home" XDG_RUNTIME_DIR="$OUT/runtime" \
+    PATH="$OUT:/usr/bin:/bin" QT_QPA_PLATFORM=minimal \
+    timeout 12 "$QS_REAL" -n -p "$PLUGIN_DIR/test/probe/scoped-suspend-probe.qml" >"$log" 2>&1
+  local status=$?
+  [[ "$status" -eq 0 ]] || { echo "NOT OK - $mode process exit=$status"; cat "$log"; return 1; }
+  grep -q 'SCOPED_SUSPEND_RESULT' "$log" || { echo "NOT OK - $mode no result"; cat "$log"; return 1; }
+  grep -q '"failed":0' "$log" || { echo "NOT OK - $mode probe checks"; cat "$log"; return 1; }
+  local notify=0 suspend=0
+  [[ -f "$mocklog" ]] && notify=$(grep -c 'omarchy-notification-send' "$mocklog" || true)
+  [[ -f "$mocklog" ]] && suspend=$(grep -c 'systemctl suspend' "$mocklog" || true)
+  if [[ "$mode" == success ]]; then
+    [[ "$notify" -eq 1 && "$suspend" -eq 0 ]] || { echo "NOT OK - success notify=$notify suspend=$suspend"; cat "$log"; return 1; }
+  else
+    [[ "$notify" -eq 0 && "$suspend" -eq 0 ]] || { echo "NOT OK - cancel notify=$notify suspend=$suspend"; cat "$log"; return 1; }
+  fi
+  ! grep -Eq 'TypeError|ReferenceError|ERROR:' "$log" || { echo "NOT OK - $mode engine error"; cat "$log"; return 1; }
+  if ! python3 - "$log" "$OUT/$mode.host" "$mode" <<'PYCODE'
+import json, os, sys
+results = [json.loads(s.split('SCOPED_SUSPEND_RESULT ',1)[1]) for s in open(sys.argv[1]) if 'SCOPED_SUSPEND_RESULT ' in s]
+assert len(results) == 1
+r = results[0]
+assert r['mode'] == sys.argv[3] and len(r['checks']) == 4 and r['failed'] == 0, r
+assert all(c['pass'] for c in r['checks']), r
+calls = [json.loads(s) for s in open(sys.argv[2])]
+assert any(c['args'][-2:] == ['idle','status'] for c in calls)
+for c in calls:
+    p = f"/proc/{c['pid']}/stat"
+    if os.path.exists(p):
+        assert open(p).read().split(') ',1)[1].split()[0] in ('Z','X'), c
+PYCODE
+  then return 1; fi
+  echo "ok - $mode notify=$notify suspend=$suspend"
+}
+
+run_case success || exit 1
+run_case cancel || exit 1
+
+run_case delay-change || exit 1
+run_case stay-awake || exit 1

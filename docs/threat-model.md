@@ -1,75 +1,74 @@
 # Threat model
 
-Scope: `halmylyseas.ristretto`, an Omarchy shell plugin that suspends the
-machine after an idle lock. See `CLAUDE.md` for the hard rules this model
-assumes are enforced, and `docs/developers.md` for architecture detail.
+Scope: Ristretto controls idle delays and suspends after a verified idle
+lock. It runs as the desktop user inside Omarchy's Quickshell process.
 
 ## Assets
 
-- **The machine must never suspend on a lock the user triggered
-  themselves** — by a keybinding, the menu, or `omarchy lock` — however
-  idle the user happens to be at that moment.
-- **The machine must never suspend on a lock that is not secure** — a
-  session-lock request with no real lock screen behind it yet.
-- **The only things this plugin ever writes are:** its own `shell.json`
-  bar-widget entry; the shared `idle.screensaver`/`idle.lock` keys, through
-  the two delay sliders and the host's own config API; and the
-  `screensaver-off` flag file, plus the one-time `mkdir -p` of its parent
-  toggles directory.
+- User activity and manual locking must not initiate automatic suspend.
+- A session must be securely locked before suspend can be dispatched.
+- Unrelated shell settings must survive delay edits.
+- Missing, stale, malformed, or ambiguous observations must fail closed.
 
-## Trust boundaries and their guard
+## Writes and commands
 
-| Boundary | Guarded by |
+The plugin updates its own bar-entry settings through `updateEntryInline`.
+Explicit slider actions update `idle.screensaver` and `idle.lock`, using
+legacy host mutation or a narrow Python helper on scoped hosts. The helper
+also creates a persistent `.ristretto.lock` sidecar and temporary files in
+the configuration directory. It never writes on startup.
+
+Stay-awake uses explicit idle enable/disable IPC. The screensaver switch
+uses the native toggle CLI and its existing state directory. Startup makes
+that toggle directory if needed and probes its flag. Verified countdowns
+call `systemctl suspend`; dry run substitutes a notification and log entry.
+No command changes the installed host tree or requires root.
+
+## Boundaries
+
+| Boundary | Guard |
 |---|---|
-| Host `lastEvent`/`locked`/`pendingSessionLock` (`omarchy.idle`/`omarchy.lock`) | The two-step latch on `lastEvent` (eligibility) plus `originIdleAtAnnounce` — `originIdleSource.isIdle` sampled synchronously at the `lock-system` announcement, before the lock's own spawn can touch the notifier (origin) — both must hold before `suspend()` is ever reachable. `pendingSessionLock` holds `secureLocked` false: a request with no real screen behind it can never arm. |
-| `shell.json` values (`sleepAfterIdleLock`, `dryRun`, the idle entry) | `Model.normalizeSleepSeconds()`/`Model.normalizeDryRun()` and the `Array.isArray` guards in `Model.entryFor()` — a hostile or hand-edited value fails toward "never suspend", never toward a shorter or real one. |
-| Tool binaries (`omarchy-toggle`, `omarchy-toggle-enabled`) | Resolved once via `bash -lc "type -P <bin>"`, accepted only as an absolute path; every spawn after that is a direct `Process` child (never a shell string) with its own watchdog/kill pair. |
-| `systemctl suspend` | The plugin's one declared service-management capability — reachable only once the latch, origin, and secure-edge checks above all hold; `dryRun` swaps it for a log line and a notification. |
-| `~/.local/state/omarchy/toggles/` (user-writable state) | `togglesWatch`'s `FileView` never preloads, so a large or symlinked file at that path is never read into shell memory; only its change events are used. |
-
-## What the plugin cannot do
-
-- It cannot suspend the machine without both an idle-originated lock and a
-  confirmed secure edge; a lock triggered by the user's own input, however
-  it happened, can never pass the origin check.
-- It cannot modify anything under `/usr/share/omarchy/` (`CLAUDE.md` rule
-  1). Every write it makes is one of the three named above, through
-  `updateEntryInline`/`mutateShellConfig` or the resolved `omarchy-toggle`.
-- It cannot run any tool through a shell string with variable content --
-  every spawn is a fixed argv array.
+| Scoped plugin API | Own settings use the copied bar snapshot. No privileged clone, full-bar identity, parent traversal, or upstream host modification. |
+| Idle/lock observation | Own-process PID-pinned detailed log, fresh nonce after replay, periodic barriers, bounded phase deadlines, and reconnect generations. Only required event fields are parsed. |
+| Raw input | Wall and monotonic timestamps reconstruct idle before the source announcement. Equal-millisecond ambiguity, clock discontinuity, or absent history reject origin. |
+| Suspend dispatch | Secure idle token, fresh barrier, loaded/enabled idle status, secure nonpending lock status, second barrier, and synchronous settings/cancellation checks. |
+| Shared config | Owned regular version-1 JSON, size limit, symlink rejection, same-directory temporary file, atomic replace, sidecar flock, final identity/content comparison, one retry, and subsequent host-state verification. |
+| Own settings | Type/range normalization and whole-entry merge preserve sibling settings. Sleep defaults to never. |
+| Child tools | Fixed argv, direct Process children, bounded collected output, deadline TERM then PID-guarded KILL, generation-aware completion. |
+| User-writable toggle directory | FileView watches without preloading; native exit-code probe reads flag state. |
 
 ## Residual risks
 
-- **`lastEvent` is a free-form log mirror.** The eligibility latch reads
-  two adjacent event strings off it; a host wording change would silently
-  stop the latch from arming (no suspend on a real idle lock), but can
-  never cause a manual lock to arm one, since the origin check does not
-  depend on that wording.
-- **A programmatic manual lock issued while the user genuinely is idle**
-  (no keyboard/mouse input, but the lock was not idle-triggered) passes
-  the origin check the same way a real idle lock would, because the check
-  can only observe input, not intent. Accepted: the bias is toward never
-  missing a real idle lock's origin at the cost of this narrow edge case.
-- **A keypress-triggered manual lock landing in the sub-second window
-  between an in-flight idle lock's `lock-system` announcement and its own
-  edge could inherit that idle lock's sample.** Narrow: the announcement
-  and the secure edge are normally milliseconds apart, and a bound user
-  who wins this race still only gets the delay already configured, with
-  every unlock cancelling the countdown outright — the 60s+ minimum gap
-  to the next idle lock and the unlock-cancels rule bound the harm.
-- **The screensaver switch's optimistic write can briefly disagree with
-  the watcher.** A flip is applied to the UI before the write completes,
-  and reconciled on exit if it failed; a rapid second click during that
-  window is queued, not lost, but the switch may show a stale value for
-  one write's duration. Cosmetic only — no security control depends on it.
+- Host log wording and Quickshell's detailed-log ordering are implementation
+  contracts, pinned to tested versions. A fresh marker proves reader
+  progress through the same logging stream; it cannot compensate for a host
+  that silently omits or changes the relevant records. Contract drift needs
+  investigation before extending support.
+- The follower replays to a fresh marker without `--tail`, whose Quickshell
+  0.3.1 implementation can discard later live records. A large log or a
+  slow reader can exceed bounds and leave suspend unavailable.
+- A manual request racing an already spawned idle lock cannot always be
+  distinguished from that lock's own request. Raw activity and phase checks
+  narrow the window but do not provide a host-issued causal identifier.
+- The last status/log observations and dispatch are not an atomic host
+  transaction. Events generated after the final marker can race the final
+  synchronous dispatch. Every observed unlock or cancellation rejects the
+  saved token.
+- A noncooperating configuration writer can change the file between the
+  final comparison and rename. Flock serializes plugin helpers, not the
+  host's own writer. Whole-file atomic replacement prevents partial JSON
+  but does not eliminate this residual lost-update window. It may also
+  change inode metadata beyond preserved file mode; custom ACLs and xattrs
+  are not copied.
+- SplitParser bounds apply after complete lines arrive. A malicious child
+  emitting one unbroken line can allocate parser memory before the bound
+  is evaluated; command deadlines limit its lifetime.
+- The screensaver switch updates optimistically and then reconciles with
+  its probe. It can briefly show a value that the native write rejected.
 
 ## Out of scope
 
-- Compromise of `omarchy.idle`/`omarchy.lock` themselves, the Omarchy
-  shell process, or the user's session/login.
-- Supply-chain integrity of the installed `omarchy` package or its
-  `omarchy-toggle*` binaries — this plugin trusts what is already
-  installed on the machine.
-- Physical or local access, kernel-level attacks, or anything not
-  reachable through this plugin's own settings, log-mirror reads, or
-  process-argv surface.
+A compromised same-user session, host process, plugin, installed binary,
+kernel, or package supply chain can bypass these boundaries. The plugin
+trusts installed Omarchy, Quickshell, Python, systemd, and native tools.
+It does not claim isolation from code running inside the same host process.

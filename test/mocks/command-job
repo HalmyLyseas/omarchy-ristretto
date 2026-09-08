@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -u
+case "${COMMAND_JOB_MODE:-success}" in
+  success|reentrant) printf 'plain-result\n'; exit 0 ;;
+  malformed) printf '{not-json}\n'; exit 0 ;;
+  fail) printf 'failure-detail\n' >&2; exit 7 ;;
+  timeout) echo "$$" > "${COMMAND_JOB_PID_FILE}"; trap ':' TERM; while :; do :; done ;;
+  flood) head -c 5000 /dev/zero | tr '\0' x; printf '\n'; exit 0 ;;
+  stop) exec sleep 5 ;;
+esac

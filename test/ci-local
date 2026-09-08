@@ -31,7 +31,7 @@ qmllint_all() {
   while IFS= read -r -d '' f; do
     out="$("$QMLLINT_BIN" -I /tmp/qmlroot -I /usr/share/omarchy/shell "$f" 2>&1)"
     if grep -q ':[0-9]*:[0-9]*: Error' <<<"$out"; then echo "$out"; status=1; fi
-  done < <(git -C "$PLUGIN_DIR" ls-files -z '*.qml')
+  done < <(git -C "$PLUGIN_DIR" ls-files --cached --others --exclude-standard -z '*.qml')
   return $status
 }
 if [[ -z "$QMLLINT_BIN" ]]; then
@@ -43,6 +43,7 @@ fi
 run_step omarchy plugin validate "$PLUGIN_DIR"
 run_step node --test "$SCRIPT_DIR"/*.test.js
 run_step node "$SCRIPT_DIR/host-contract.mjs"
+run_step python3 "$SCRIPT_DIR/idle-writer.test.py"
 
 if [[ "$no_cage" -eq 1 ]]; then
   # test/probe/run and run-ui already skip themselves without `qs`, so this
@@ -61,6 +62,15 @@ else
   run_step cage -- bash "$SCRIPT_DIR/probe/run"
   run_step cage -- bash "$SCRIPT_DIR/probe/run-ui"
 fi
+
+for probe in "$SCRIPT_DIR"/probe/run-*; do
+  [[ "$probe" == */run-ui ]] && continue
+  if [[ "$no_cage" -eq 1 ]]; then
+    run_step bash "$probe"
+  else
+    run_step cage -- bash "$probe"
+  fi
+done
 
 echo
 if [[ $overall -eq 0 ]]; then

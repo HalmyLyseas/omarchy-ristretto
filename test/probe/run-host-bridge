@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+set -uo pipefail
+ROOT="$(cd -- "$(dirname -- "$0")/../.." && pwd)"
+OUT="$(mktemp -d /tmp/ristretto-bridge.XXXXXX)"
+trap 'rm -rf "$OUT"' EXIT
+mkdir -m 700 "$OUT/runtime"
+failures=0
+for mode in eligible manual activity ambiguous unlock-pending writer; do
+  log="$OUT/$mode.log"
+  mock="$OUT/$mode.mock"
+  config=""
+  if [[ "$mode" == writer ]]; then
+    config="$OUT/shell.json"
+    printf '%s\n' '{"version":1,"idle":{"screensaver":"150.9","lock":300},"unrelated":{"keep":true}}' > "$config"
+  fi
+  HOST_BRIDGE_MODE="$mode" HOST_BRIDGE_QS="$ROOT/test/mocks/qs-host-bridge" HOST_BRIDGE_LOG="$mock" HOST_BRIDGE_CONFIG="$config" \
+    RISTRETTO_PLUGIN_DIR="$ROOT" XDG_RUNTIME_DIR="$OUT/runtime" QT_QPA_PLATFORM=minimal \
+    timeout --kill-after=2 15 qs -n -p "$ROOT/test/probe/host-bridge-probe.qml" --no-color > "$log" 2>&1
+  code=$?
+  if [[ "$code" != 0 ]] || rg -q 'TypeError|ReferenceError|ERROR:|Binding loop' "$log"; then
+    cat "$log"
+    failures=$((failures + 1))
+    continue
+  fi
+  if ! python3 - "$log" "$mock" "$mode" "$config" <<'PY'
+import json, os, sys
+results = [json.loads(s.split('HOST_BRIDGE_RESULT ',1)[1]) for s in open(sys.argv[1]) if 'HOST_BRIDGE_RESULT ' in s]
+assert len(results) == 1
+r = results[0]
+assert r['mode'] == sys.argv[3] and r['failed'] == 0 and len(r['checks']) >= 2, r
+assert all(c['pass'] for c in r['checks']), r
+if sys.argv[3] == 'writer':
+    config = json.load(open(sys.argv[4]))
+    assert config['idle'] == {'screensaver':'150.9', 'lock':600}, config
+    assert config['unrelated'] == {'keep':True}, config
+calls = [json.loads(s) for s in open(sys.argv[2])]
+assert any(c['args'][0] == 'log' for c in calls)
+assert any(c['args'][-2:] == ['idle', 'status'] for c in calls)
+if sys.argv[3] in ('eligible','unlock-pending'):
+    assert any(c['args'][-2:] == ['lock','status'] for c in calls), calls
+for c in calls:
+    path = f"/proc/{c['pid']}/stat"
+    if os.path.exists(path):
+        assert open(path).read().split(') ',1)[1].split()[0] in ('Z','X'), c
+print(f"PASS bridge {r['mode']}: {len(r['checks'])} assertions")
+PY
+  then
+    cat "$log"
+    failures=$((failures + 1))
+  fi
+done
+exit "$failures"

@@ -28,14 +28,14 @@ Panel {
   // never a re-parse of shell.json -- the host owns the parsing rules (0
   // means "immediately"; negatives fall back to its defaults).
   readonly property int screensaverSeconds:
-    idleService ? Number(idleService.screensaverTimeoutSeconds) : 150
+    !idleAvailable ? 0 : (scopedHost ? idleService.screensaverSeconds : Number(idleService.screensaverTimeoutSeconds))
   readonly property int lockSeconds:
-    idleService ? Number(idleService.lockTimeoutSeconds) : 300
+    !idleAvailable ? 0 : (scopedHost ? idleService.lockSeconds : Number(idleService.lockTimeoutSeconds))
 
   // A stored pair that violates the strict clamp (hand-edited config) is
   // surfaced, not silently repaired: opening a panel must never write.
   // Committing either slider repairs it through the clamp.
-  readonly property bool delaysConflict: lockSeconds <= screensaverSeconds
+  readonly property bool delaysConflict: idleAvailable && lockSeconds <= screensaverSeconds
   readonly property int screensaverIndex: Model.nearestIndex(Model.SCREENSAVER_STOPS, screensaverSeconds / 60)
   readonly property int lockIndex: Model.nearestIndex(Model.LOCK_STOPS, lockSeconds / 60)
 
@@ -49,7 +49,12 @@ Panel {
   readonly property bool dryRun: Model.normalizeDryRun(setting("dryRun", false))
 
   // Stay awake is owned by omarchy.idle; bind, never cache.
-  readonly property var idleService: bar && bar.shell ? bar.shell.firstPartyServiceFor("omarchy.idle") : null
+  readonly property bool scopedHost: ristrettoService && ristrettoService.scopedHost === true
+  readonly property var bridge: scopedHost ? ristrettoService.hostBridge : null
+  readonly property var idleService: scopedHost ? (bridge ? bridge.idle : null)
+    : (shell ? shell.firstPartyServiceFor("omarchy.idle") : null)
+  readonly property bool idleAvailable: idleService !== null && (!scopedHost || idleService.current === true)
+  readonly property bool delayWritePending: bridge ? bridge.writePending : false
   readonly property bool stayAwake: idleService ? idleService.stayAwake === true : false
 
   // The screensaver flag is owned by this plugin's own service -- one
@@ -58,12 +63,15 @@ Panel {
   readonly property var ristrettoService: shell ? shell.serviceFor("halmylyseas.ristretto") : null
   readonly property bool screensaverOff: ristrettoService ? ristrettoService.screensaverOff === true : false
   readonly property bool screensaverEnabled: !screensaverOff
+  readonly property bool suspendAvailable: ristrettoService ? ristrettoService.suspendSupported === true : false
 
   // What the machine will actually do, composed from the same bindings as
   // the controls so it can never disagree with them. Kept short: the hero
   // meta gets only the width left over after the stay-awake control.
   readonly property string heroStatus: {
+    if (!idleAvailable) return "idle status unavailable"
     if (stayAwake) return "staying awake"
+    if (sleepSeconds > 0 && !suspendAvailable) return "sleep unavailable"
     return sleepSeconds > 0 ? "sleep " + Model.sleepLabel(sleepSeconds, true) + " after lock"
                             : "sleep never"
   }
@@ -129,7 +137,9 @@ Panel {
   // and the partner is written only when the clamp forces it to move --
   // one mutation either way, so shell.json never briefly disagrees.
   function commitScreensaver(sliderValue) {
+    if (!root.idleAvailable || root.delayWritePending) return
     var ss = Model.SCREENSAVER_STOPS[Math.round(sliderValue)]
+    if (root.scopedHost) { ristrettoService.writeIdleDelay("screensaver", ss * 60); return }
     var patch = ({ screensaver: ss * 60 })
     if (root.lockSeconds <= ss * 60)
       patch.lock = Model.LOCK_STOPS[Model.lockIndexAbove(ss, root.lockIndex)] * 60
@@ -137,7 +147,9 @@ Panel {
   }
 
   function commitLock(sliderValue) {
+    if (!root.idleAvailable || root.delayWritePending) return
     var lk = Model.LOCK_STOPS[Math.round(sliderValue)]
+    if (root.scopedHost) { ristrettoService.writeIdleDelay("lock", lk * 60); return }
     var patch = ({ lock: lk * 60 })
     if (root.screensaverSeconds >= lk * 60)
       patch.screensaver = Model.SCREENSAVER_STOPS[Model.screensaverIndexBelow(lk, root.screensaverIndex)] * 60
@@ -148,6 +160,8 @@ Panel {
   // setIdleEnabled(true) means "allow idle" (stay-awake off), so passing
   // the current stayAwake value flips it -- same call the first-party control makes.
   function toggleStayAwake() {
+    if (!root.idleAvailable) return
+    if (root.scopedHost) { idleService.setStayAwake(!root.stayAwake); return }
     if (idleService && typeof idleService.setIdleEnabled === "function")
       idleService.setIdleEnabled(root.stayAwake)
   }
@@ -239,6 +253,8 @@ Panel {
 
             ToggleSwitch {
               id: stayAwakeSwitch
+              enabled: root.idleAvailable
+              opacity: enabled ? 1 : 0.4
               anchors.verticalCenter: parent.verticalCenter
               checked: root.stayAwake
               foreground: root.foreground
@@ -294,7 +310,7 @@ Panel {
           }
 
           Text {
-            text: Model.minutesLabel(Model.SCREENSAVER_STOPS[
+            text: !root.idleAvailable ? "unavailable" : Model.minutesLabel(Model.SCREENSAVER_STOPS[
               screensaverSlider.dragging ? Math.round(screensaverSlider.liveValue) : root.screensaverIndex])
             textFormat: Text.PlainText
             color: root.dim
@@ -317,6 +333,7 @@ Panel {
 
           PanelSlider {
             id: screensaverSlider
+            enabled: root.idleAvailable && !root.delayWritePending
             bar: root.bar
             anchors.fill: parent
             anchors.leftMargin: Style.space(6)
@@ -357,7 +374,7 @@ Panel {
 
           Text {
             id: lockValue
-            text: Model.minutesLabel(Model.LOCK_STOPS[
+            text: !root.idleAvailable ? "unavailable" : Model.minutesLabel(Model.LOCK_STOPS[
               lockSlider.dragging ? Math.round(lockSlider.liveValue) : root.lockIndex])
             textFormat: Text.PlainText
             color: root.dim
@@ -379,6 +396,7 @@ Panel {
 
           PanelSlider {
             id: lockSlider
+            enabled: root.idleAvailable && !root.delayWritePending
             bar: root.bar
             anchors.fill: parent
             anchors.leftMargin: Style.space(6)
@@ -414,6 +432,17 @@ Panel {
       }
 
       PanelSeparator { foreground: root.foreground }
+
+      Text {
+        visible: root.bridge !== null && !!root.bridge.delayError
+        width: parent.width
+        text: root.bridge ? root.bridge.delayError : ""
+        textFormat: Text.PlainText
+        wrapMode: Text.WordWrap
+        color: root.dim
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+      }
 
       // ---------- Sleep after idle lock ----------
       Column {

@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+set -u
+log="${HOST_IDLE_MOCK_LOG:-}"
+mode="${HOST_IDLE_MOCK_MODE:-ok}"
+count_file="${HOST_IDLE_COUNT_FILE:-/tmp/host-idle-count}"
+count=0; [[ -f "$count_file" ]] && count="$(<"$count_file")"; count=$((count + 1)); printf '%s' "$count" > "$count_file"
+printf 'pid=%s argv=' "$$" >> "$log" 2>/dev/null || true
+printf '%q ' "$@" >> "$log" 2>/dev/null || true
+printf ' count=%s\n' "$count" >> "$log" 2>/dev/null || true
+if [[ "$mode" == hang ]]; then
+  exec /usr/bin/python3 -c 'import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(30)'
+fi
+if [[ "$mode" == flood ]]; then head -c 20000 /dev/zero; exit 0; fi
+if [[ "$mode" == missing-output ]]; then exit 0; fi
+if [[ "$mode" == fail && "$count" -ge 2 ]]; then echo 'ipc failed' >&2; exit 7; fi
+if [[ "$mode" == delayed-status && "$count" -eq 1 ]]; then sleep 0.15; fi
+if [[ "$mode" == unloaded && "$count" -eq 1 ]]; then
+  printf '%s\n' '{"enabled":false,"stayAwake":false,"stayAwakeStateLoaded":false,"screensaver":60,"lock":180}'
+  exit 0
+fi
+if [[ "$mode" == verify-fail && "$count" -ge 3 ]]; then echo 'verify failed' >&2; exit 9; fi
+if [[ "$mode" == verify-json && "$count" -ge 3 ]]; then echo '{bad json'; exit 0; fi
+if [[ "$mode" == verify-unloaded && "$count" -ge 3 ]]; then echo '{"enabled":false,"stayAwake":true,"stayAwakeStateLoaded":false,"screensaver":60,"lock":180}'; exit 0; fi
+op="${*: -1}"
+if [[ "$op" == enable || "$op" == disable ]]; then
+  printf '%s' "$([[ "$op" == disable ]] && echo true || echo false)" > "${HOST_IDLE_STATE_FILE:-/tmp/host-idle-state}"
+  printf '%s\n' "$([[ "$op" == disable ]] && echo disabled || echo enabled)"
+  exit 0
+fi
+stay="false"
+[[ -f "${HOST_IDLE_STATE_FILE:-/tmp/host-idle-state}" ]] && stay="$(<"${HOST_IDLE_STATE_FILE:-/tmp/host-idle-state}")"
+enabled="true"; [[ "$stay" == true ]] && enabled="false"
+if [[ "$mode" == wrong-state && "$count" -ge 3 ]]; then stay="false"; enabled="true"; fi
+printf '%s\n' "${HOST_IDLE_MOCK_STATUS:-{\"enabled\":$enabled,\"stayAwake\":$stay,\"stayAwakeStateLoaded\":true,\"screensaver\":60,\"lock\":180}}"

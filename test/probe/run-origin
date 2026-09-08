@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+set -uo pipefail
+ROOT="$(cd -- "$(dirname -- "$0")/../.." && pwd)"
+OUT="$(mktemp -d /tmp/ristretto-origin-test.XXXXXX)"
+trap 'rm -rf "$OUT"' EXIT
+mkdir -m 700 "$OUT/runtime"
+failures=0
+for scenario in flow reconnect disable overflow timeout missing clock source; do
+  log="$OUT/$scenario.log"
+  ORIGIN_SCENARIO="$scenario" RISTRETTO_PLUGIN_DIR="$ROOT" XDG_RUNTIME_DIR="$OUT/runtime" QT_QPA_PLATFORM=minimal \
+    timeout --kill-after=2 10 qs -p "$ROOT/test/probe/origin-probe.qml" --no-color > "$log" 2>&1
+  code=$?
+  if [[ "$code" != 0 ]] || rg -q 'TypeError|ReferenceError|ERROR:' "$log"; then
+    cat "$log"
+    echo "FAIL origin $scenario: process/engine exit $code"
+    failures=$((failures + 1))
+    continue
+  fi
+  if ! python3 - "$log" "$scenario" <<'PY'
+import json, os, re, sys
+lines = open(sys.argv[1]).read().splitlines()
+results = [json.loads(s.split('ORIGIN_RESULT ', 1)[1]) for s in lines if 'ORIGIN_RESULT ' in s]
+assert len(results) == 1, 'one result required'
+r = results[0]
+assert r['scenario'] == sys.argv[2]
+assert r['checks'] and r['failures'] == 0, r
+assert all(c['pass'] for c in r['checks']), r
+pid = r['childPid']
+if pid and os.path.exists(f'/proc/{pid}/stat'):
+    state = open(f'/proc/{pid}/stat').read().split(') ',1)[1].split()[0]
+    assert state in ('Z','X'), f'child {pid} survived'
+print(f"PASS origin {sys.argv[2]}: {len(r['checks'])} assertions")
+PY
+  then
+    cat "$log"
+    failures=$((failures + 1))
+  fi
+done
+exit "$failures"

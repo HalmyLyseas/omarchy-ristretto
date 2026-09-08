@@ -1,29 +1,23 @@
 #!/usr/bin/env bash
-# test/all -- runs every suite: Model.js unit tests, the host-contract
-# check, comment-hygiene, the QML-sink scan, then the two qs-driven probes.
-# Each qs probe skips itself when `qs` is absent; exits non-zero on any failure.
+# Runs pure logic, host contracts, writer tests, source checks, and real QML
+# probes. Node, Python, Quickshell, and the host QML tree are required for
+# the complete suite; every failure propagates to the final exit status.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 overall=0
 
-echo "== Model.js (node) =="
-node "$SCRIPT_DIR/model.test.js"
+echo "== JavaScript unit tests =="
+node --test "$SCRIPT_DIR"/*.test.js
+if [[ $? -ne 0 ]]; then overall=1; fi
+
+echo "== Idle config writer =="
+python3 "$SCRIPT_DIR/idle-writer.test.py"
 if [[ $? -ne 0 ]]; then overall=1; fi
 
 echo
 echo "== host contract (node) =="
 node "$SCRIPT_DIR/host-contract.mjs"
-if [[ $? -ne 0 ]]; then overall=1; fi
-
-echo
-echo "== comment hygiene (node) =="
-node --test "$SCRIPT_DIR/comment-hygiene.test.js" 2>&1 | tail -n 20
-if [[ ${PIPESTATUS[0]} -ne 0 ]]; then overall=1; fi
-
-echo
-echo "== QML Text sinks (node) =="
-node "$SCRIPT_DIR/qml-sinks.test.js"
 if [[ $? -ne 0 ]]; then overall=1; fi
 
 echo
@@ -35,6 +29,13 @@ echo
 echo "== BarWidget.qml/Panel.qml (qs UI probe) =="
 bash "$SCRIPT_DIR/probe/run-ui"
 if [[ $? -ne 0 ]]; then overall=1; fi
+
+for probe in "$SCRIPT_DIR"/probe/run-*; do
+  [[ "$probe" == */run-ui ]] && continue
+  echo "== $(basename "$probe") =="
+  bash "$probe"
+  if [[ $? -ne 0 ]]; then overall=1; fi
+done
 
 echo
 if [[ $overall -eq 0 ]]; then

@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+set -uo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PLUGIN_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+MOCK="$PLUGIN_DIR/test/mocks/qs-host-idle"
+OUT="$(mktemp -d)"
+if [[ "${HOST_IDLE_KEEP:-}" == 1 ]]; then trap 'echo "kept $OUT"' EXIT; else trap 'rm -rf "$OUT"' EXIT; fi
+ln -sfn "$MOCK" "$OUT/qs"
+QS_BIN="$(command -v qs)"
+mkdir -p "$OUT/runtime"
+fail_count=0
+run_case() {
+  local name="$1" mode="$2"; local log="$OUT/$name.log"
+  local qs_path="$OUT/qs"; [[ "$mode" == missing-exec ]] && qs_path="$OUT/no-such-qs"
+  local host_pid=""; [[ "$name" == explicit-pid-selection ]] && host_pid=424242
+  local status_override=""; [[ "$mode" == inconsistent ]] && status_override='{"enabled":true,"stayAwake":true,"stayAwakeStateLoaded":true,"screensaver":60,"lock":180}'
+  HOST_IDLE_MOCK_MODE="$mode" HOST_IDLE_MOCK_STATUS="$status_override" HOST_IDLE_MOCK_LOG="$OUT/$name.mock" HOST_IDLE_COUNT_FILE="$OUT/$name.count" HOST_IDLE_STATE_FILE="$OUT/$name.state" HOST_IDLE_QS="$qs_path" HOST_IDLE_HOST_PID="$host_pid" \
+    RISTRETTO_PLUGIN_DIR="$PLUGIN_DIR" XDG_RUNTIME_DIR="$OUT/runtime" QT_QPA_PLATFORM=minimal PATH="$OUT:/usr/bin:/bin" \
+    timeout 8 "$QS_BIN" -n -p "$PLUGIN_DIR/test/probe/host-idle-probe.qml" > "$log" 2>&1
+  local code=$?
+  [[ "$code" == 0 ]] && ! grep -q 'TypeError\|ReferenceError\|ERROR:' "$log" || { echo "NOT OK - $name process/engine (exit $code)"; cat "$log"; fail_count=$((fail_count + 1)); return; }
+  grep -q 'HOST_IDLE_RESULT' "$log" || { echo "NOT OK - $name result"; cat "$log"; fail_count=$((fail_count + 1)); return; }
+  grep -q '"failed":0' "$log" || { echo "NOT OK - $name checks"; cat "$log"; fail_count=$((fail_count + 1)); return; }
+  local calls=0; [[ -f "$OUT/$name.mock" ]] && calls=$(wc -l < "$OUT/$name.mock")
+  case "$name" in
+    queued-during-status|reentrant-new-request-from-writeFinished) [[ "$calls" -eq 5 ]] || { echo "NOT OK - $name calls=$calls expected=5"; fail_count=$((fail_count + 1)); return; };;
+    failed-write-single-attempt) [[ "$calls" -eq 2 ]] || { echo "NOT OK - $name calls=$calls expected=2"; fail_count=$((fail_count + 1)); return; };;
+    verify-nonzero|verify-invalid-json|verify-wrong-state|verify-loaded-false) [[ "$calls" -eq 3 ]] || { echo "NOT OK - $name calls=$calls expected=3"; fail_count=$((fail_count + 1)); return; };;
+    freshness-expiry|inconsistent-status|hang-ignore-term|multiline-flood|deactivate-lifecycle) [[ "$calls" -eq 1 ]] || { echo "NOT OK - $name calls=$calls expected=1"; fail_count=$((fail_count + 1)); return; };;
+    unloaded-startup) [[ "$calls" -eq 6 ]] || { echo "NOT OK - $name calls=$calls expected=6"; fail_count=$((fail_count + 1)); return; };;
+    explicit-pid-selection) [[ "$calls" -eq 5 ]] || { echo "NOT OK - $name calls=$calls expected=5"; fail_count=$((fail_count + 1)); return; }
+      if grep -Eq -- '(^| )-n( |$)|(^| )-p( |$)' "$OUT/$name.mock"; then echo "NOT OK - $name mixed instance/config selection"; fail_count=$((fail_count + 1)); return; fi;;
+  esac
+  if [[ "$name" == hang-ignore-term ]]; then
+    local pid; pid=$(sed -n '1s/^pid=\([0-9]*\).*/\1/p' "$OUT/$name.mock")
+    [[ -n "$pid" && ! -e "/proc/$pid" ]] || { echo "NOT OK - $name orphan pid=$pid"; fail_count=$((fail_count + 1)); return; }
+  fi
+  echo "ok - $name (calls=$calls)"
+}
+cases=(
+  "queued-during-status:delayed-status"
+  "failed-write-single-attempt:fail"
+  "verify-nonzero:verify-fail"
+  "verify-invalid-json:verify-json"
+  "verify-loaded-false:verify-unloaded"
+  "verify-wrong-state:wrong-state"
+  "missing-executable:missing-exec"
+  "freshness-expiry:expiry"
+  "inconsistent-status:inconsistent"
+  "hang-ignore-term:hang"
+  "multiline-flood:flood"
+  "deactivate-lifecycle:deactivate"
+  "unloaded-startup:unloaded"
+  "reentrant-new-request-from-writeFinished:reentrant"
+  "explicit-pid-selection:ok"
+)
+for spec in "${cases[@]}"; do
+  name="${spec%%:*}"; mode="${spec#*:}"
+  run_case "$name" "$mode"
+done
+exit "$fail_count"

@@ -10,9 +10,11 @@ ShellRoot {
 
   property string pluginDir: Quickshell.env("RISTRETTO_PLUGIN_DIR")
   property string scenario: Quickshell.env("RISTRETTO_SCENARIO") || ""
+  property bool useFacade: scenario.indexOf("facade-") === 0
   property bool done: false
   property var service: null
   property var sleepNormChecks: []
+  property var facadeChecks: ({})
   property bool reconcileMidState: false
 
   property var shellConfigObj: ({
@@ -79,13 +81,41 @@ ShellRoot {
     function updateEntryInline(id, settings) {}
   }
 
+  // Instantiate the installed facade so barConfig and callback properties
+  // are exercised through the same object type as production.
+  Loader {
+    id: facadeLoader
+    active: false
+    onLoaded: {
+      item.barConfig = probeRoot.shellConfigObj.bar
+      item._firstPartyServiceLookup = function(id) { return null }
+      item._updateSettings = function(id, settings) {
+        var replacement = { id: id }
+        for (var key in settings) replacement[key] = settings[key]
+        var oldLayout = probeRoot.shellConfigObj.bar.layout
+        var snapshot = { layout: {
+          left: oldLayout.left || [], center: oldLayout.center || [], right: oldLayout.right || []
+        } }
+        var sections = ["left", "center", "right"]
+        for (var s = 0; s < sections.length; s++) {
+          var values = snapshot.layout[sections[s]]
+          for (var i = 0; i < values.length; i++)
+            if (values[i] && values[i].id === id) values[i] = replacement
+        }
+        probeRoot.shellConfigObj = { bar: snapshot, plugins: [] }
+        facadeLoader.item.barConfig = snapshot
+        return true
+      }
+    }
+  }
+
   Loader {
     id: loader
     source: "file://" + probeRoot.pluginDir + "/Service.qml"
-    active: true
+    active: !probeRoot.useFacade || facadeLoader.status === Loader.Ready
     onLoaded: {
       probeRoot.service = item
-      item.shell = shellStub
+      item.shell = probeRoot.useFacade ? facadeLoader.item : shellStub
       item.originIdleSource = originStub
       // sleep-normalize validates the real 60s production floor; every
       // other scenario needs sub-minute countdowns to stay fast.
@@ -211,7 +241,73 @@ ShellRoot {
 
   // -------------------------------------------------------------- scenarios
 
+  function configureFacadeBar(entryPatch, section, include) {
+    var entry = { id: "halmylyseas.ristretto" }
+    for (var k in entryPatch) entry[k] = entryPatch[k]
+    var snapshot = { layout: { left: [], center: [], right: [] } }
+    if (include !== false) snapshot.layout[section || "right"] = [entry]
+    probeRoot.shellConfigObj = { bar: snapshot, plugins: [] }
+    if (facadeLoader.item) facadeLoader.item.barConfig = snapshot
+  }
+
+  function facadeSibling() {
+    var layout = facadeLoader.item.barConfig.layout
+    var sections = ["left", "center", "right"]
+    for (var s = 0; s < sections.length; s++) {
+      var values = layout[sections[s]] || []
+      for (var i = 0; i < values.length; i++)
+        if (values[i] && values[i].id === "halmylyseas.ristretto") return values[i].sibling
+    }
+    return null
+  }
+
+  function scenarioFacadeRoundTrip() {
+    configureFacadeBar({ sleepAfterIdleLock: 600, dryRun: true, sibling: "kept" }, "right")
+    after(100, function() {
+      var before = { sleep: service.sleepSeconds, dry: service.dryRun }
+      facadeLoader.item.updateEntryInline("halmylyseas.ristretto",
+                                          { sleepAfterIdleLock: 300, dryRun: false, sibling: "kept" })
+      after(100, function() {
+        var refreshed = { sleep: service.sleepSeconds, dry: service.dryRun,
+                          sibling: facadeSibling() }
+        configureFacadeBar({ sleepAfterIdleLock: "bad", dryRun: "bad" }, "left")
+        after(100, function() {
+          var malformed = { sleep: service.sleepSeconds, dry: service.dryRun }
+          configureFacadeBar({}, "center", false)
+          after(100, function() {
+            var removed = { sleep: service.sleepSeconds, dry: service.dryRun,
+                            diagnostic: service.settingsDiagnostic }
+            configureFacadeBar({ sleepAfterIdleLock: 180, dryRun: false }, "center")
+            after(100, function() {
+              var reappeared = { sleep: service.sleepSeconds, dry: service.dryRun,
+                                 diagnostic: service.settingsDiagnostic }
+              service.shell = null
+              after(50, function() {
+                service.shell = facadeLoader.item
+                after(100, function() {
+                  probeRoot.facadeChecks = { before: before, refreshed: refreshed,
+                    malformed: malformed, removed: removed, reappeared: reappeared,
+                    recreated: { sleep: service.sleepSeconds, dry: service.dryRun,
+                                  diagnostic: service.settingsDiagnostic } }
+                  finishNow()
+                })
+              })
+            })
+          })
+        })
+      })
+    })
+  }
+
+  function scenarioFacadeMissingCapability() {
+    configureFacadeBar({ sleepAfterIdleLock: 300, dryRun: false })
+    facadeLoader.item._firstPartyServiceLookup = function(id) { return null }
+    after(100, finishNow)
+  }
+
   function runScenario() {
+    if (scenario === "facade-round-trip") return scenarioFacadeRoundTrip()
+    if (scenario === "facade-missing-capability") return scenarioFacadeMissingCapability()
     if (scenario === "armed-fire") return scenarioArmedFire()
     if (scenario === "dryrun-fire") return scenarioDryrunFire()
     if (scenario === "manual-lock") return scenarioManualLock()
@@ -555,7 +651,8 @@ ShellRoot {
       writeWatchdogFiredCount: service._writeWatchdogFiredCount,
       writeReconciledCount: service._debugWriteReconciledCount,
       writeFailedStartCount: service._writeFailedStartCount,
-      armedAtMs: service._debugArmedAtMs
+      armedAtMs: service._debugArmedAtMs,
+      facadeChecks: probeRoot.facadeChecks
     }
     console.log("PROBE_RESULT " + JSON.stringify(summary))
     Qt.quit()
@@ -567,5 +664,13 @@ ShellRoot {
     running: true
     repeat: false
     onTriggered: probeRoot.finish("probe harness overall timeout (22s)")
+  }
+
+  Component.onCompleted: {
+    if (probeRoot.useFacade) {
+      facadeLoader.setSource("file:///usr/share/omarchy/shell/services/PluginShellApi.qml",
+                             { pluginId: "halmylyseas.ristretto" })
+      facadeLoader.active = true
+    }
   }
 }

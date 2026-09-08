@@ -19,9 +19,8 @@ From the bar, without editing JSON by hand, a user can set and see:
 
 1. **Never modify anything under `/usr/share/omarchy/`.** Reading it is
    safe, encouraged, and the primary way to learn the plugin API.
-2. **Never fork or clone a first-party plugin.** Everything needed here is
-   reachable through the shell's documented seams: its config API, service
-   registry, and shared Ui kit.
+2. **Never fork or clone a first-party plugin.** Use the scoped settings API, own-process IPC/log observation, and shared
+   Ui kit. Never impersonate a privileged plugin or traverse its parents.
 3. **Never run `omarchy refresh`/`omarchy reinstall`.** They overwrite
    user config.
 4. **Ask before anything that suspends, locks, or blanks the screen**
@@ -34,7 +33,7 @@ From the bar, without editing JSON by hand, a user can set and see:
 
 ## Environment
 
-Tested against Omarchy 4.0.1, Quickshell 0.3.1. Relevant paths:
+Compatibility targets: Omarchy 4.0.1 through 4.0.3, Quickshell 0.3.1. Relevant paths:
 
 ```
 /usr/share/omarchy/shell/plugins/     # first-party plugin source -- read only
@@ -59,15 +58,16 @@ it with `inotifywait -r`, and every save tears down and rebuilds the bar.
 `Service.qml` (loaded once) owns the suspend state machine and every
 machine-wide watcher; `BarWidget.qml`/`Panel.qml` (one per monitor) bind
 its state and write through the shell's config API; `Model.js` is pure
-ES5 logic, testable with plain Node. Full detail: `docs/developers.md`.
+ES5 logic, testable with plain Node. Scoped hosts use `HostBridge.qml`,
+`HostIdle.qml`, `HostOrigin.qml`, and `OriginModel.js`; the narrow Python
+helper writes shared idle delays only after a slider action. Full detail: `docs/developers.md`.
 
 ## Testing
 
-`bash test/all` runs everything: the Node unit suite over `Model.js`, a
-read-only contract check against the installed shell tree (skips cleanly
-without one), comment-hygiene and QML-sink scans, and two `qs`-driven
-probes (the service state machine, then the BarWidget/Panel UI). See
-`docs/developers.md` "Testing" for what each one covers.
+`bash test/all` runs Node and Python tests, read-only host contracts,
+hygiene and sink scans, and real QML probes with mocked mutations.
+`bash test/ci-local` adds lint and validation and runs under headless cage.
+See `docs/developers.md` for contracts and supported behavior.
 
 ## Releasing
 

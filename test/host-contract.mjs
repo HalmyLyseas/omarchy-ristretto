@@ -39,14 +39,46 @@ function assertContains(path, needle, why) {
   }
 }
 
+function assertNotContains(path, needle, why) {
+  checks++;
+  const lines = fileLines(path);
+  const idx = lines.findIndex(l => l.includes(needle));
+  if (idx !== -1)
+    failures.push(`${path}:${idx + 1}: must not contain ${JSON.stringify(needle)} (${why})`);
+  else console.log(`ok - ${path} does not contain ${JSON.stringify(needle)}`);
+}
+
+function assertPattern(path, pattern, why) {
+  checks++;
+  const source = readFileSync(path, "utf8");
+  if (!pattern.test(source)) failures.push(`${path}: expected ${pattern} (${why})`);
+  else console.log(`ok - ${path} matches ${pattern}`);
+}
+
 const idleService = join(SHELL_TREE, "plugins/services/idle/Service.qml");
 const lockService = join(SHELL_TREE, "plugins/lock/Service.qml");
 const shellQml = join(SHELL_TREE, "shell.qml");
+const shellApi = join(SHELL_TREE, "services/PluginShellApi.qml");
+const firstPartyApi = join(SHELL_TREE, "services/PluginFirstPartyServiceApi.qml");
+const pluginService = join(PLUGIN_DIR, "Service.qml");
+const pluginOrigin = join(PLUGIN_DIR, "HostOrigin.qml");
 
 for (const [path, label] of [[idleService, "idle Service.qml"], [lockService, "lock Service.qml"], [shellQml, "shell.qml"]]) {
   if (!existsSync(path)) {
     failures.push(`${path}: missing (${label} not found under ${SHELL_TREE}) -- Omarchy's plugin layout changed`);
   }
+}
+
+if (existsSync(shellApi)) {
+  assertContains(shellApi, "property var barConfig", "scoped bar snapshot");
+  assertContains(shellApi, "property var idleConfig", "scoped idle snapshot");
+  assertNotContains(shellApi, "property var shellConfig", "ordinary facade must not expose full config");
+  assertPattern(shellApi, /_mutateBarConfig[\s\S]*typeof mutator === "function"/, "only scoped bar mutator callback");
+}
+if (existsSync(firstPartyApi)) {
+  assertContains(firstPartyApi, 'serviceId === "omarchy.idle"', "idle proxy target gate");
+  assertContains(firstPartyApi, "_setIdleEnabled(!!value)", "boolean-only idle operation");
+  assertNotContains(firstPartyApi, "omarchy.lock", "lock service excluded from first-party proxy");
 }
 
 if (existsSync(idleService)) {
@@ -73,6 +105,42 @@ if (existsSync(shellQml)) {
   assertContains(shellQml, "function firstPartyServiceFor(", "Service.qml/Panel.qml resolve omarchy.idle/lock");
   assertContains(shellQml, "function mutateShellConfig(", "Panel.qml writes idle delays through this");
   assertContains(shellQml, "function updateEntryInline(", "Panel.qml writes its own settings through this");
+  assertPattern(shellQml, /shellApi\.barConfig\s*=\s*shell\.publicBarConfig\(\)/, "bar snapshot refresh");
+  assertPattern(shellQml, /shellApi\.idleConfig\s*=\s*shell\.publicIdleConfigFor\(shellManifest\)/, "idle snapshot refresh");
+  assertPattern(shellQml, /var allowed = \["omarchy\.idle"[^\]]*\]/, "first-party allowlist excludes lock");
+  assertPattern(shellQml, /if \(!target \|\| shell\.isAuthenticationService\(target, id\)\) return false/, "authentication and ordinary target gate");
+}
+
+if (existsSync(idleService)) {
+  assertPattern(idleService, /lastEventAt\s*=\s*nowIso\(\)/, "idle ISO source timestamp");
+  assertPattern(idleService, /console\.log\("omarchy idle " \+ root\.lastEventAt/, "idle log wording");
+}
+if (existsSync(lockService))
+  assertPattern(lockService, /lastEventAt\s*=\s*new Date\(\)\.toISOString\(\)/, "lock ISO source timestamp");
+
+if (existsSync(pluginService)) {
+  assertContains(pluginService, "legacyShellConfig", "pre-4.0.3 full config compatibility");
+  assertContains(pluginService, "barConfigSnapshot", "4.0.3 scoped bar snapshot");
+}
+if (existsSync(pluginOrigin)) {
+  assertPattern(pluginOrigin, /\[root\.qsExecutable, "log", "--pid",[\s\S]*"--follow", "--no-color"\]/,
+    "own PID full replay logging source");
+  assertNotContains(pluginOrigin, '"--tail"', "follow replay must retain intermediate live events");
+}
+
+const qsVersion = spawnSync("qs", ["--version"], { encoding: "utf8" });
+if (qsVersion.error || qsVersion.status !== 0) {
+  console.log("SKIP: qs --version unavailable, cannot pin Quickshell logging behavior");
+} else {
+  checks++;
+  if (!/0\.3\.1/.test(`${qsVersion.stdout}${qsVersion.stderr}`))
+    failures.push(`qs --version: expected Quickshell 0.3.1, got ${JSON.stringify(qsVersion.stdout || qsVersion.stderr)}`);
+  else console.log("ok - qs reports Quickshell 0.3.1");
+  const qsHelp = spawnSync("qs", ["log", "--help"], { encoding: "utf8" });
+  const help = `${qsHelp.stdout}${qsHelp.stderr}`;
+  checks++;
+  if (!/--follow/.test(help) || !/--pid/.test(help) || !/--no-color/.test(help)) failures.push("qs log --help: --follow/--pid/--no-color contract missing");
+  else console.log("ok - qs log exposes --follow and --pid");
 }
 
 // Ui/ components this plugin's QML declares as root elements, frozen at

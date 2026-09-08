@@ -18,8 +18,12 @@ BarWidget {
   // Stay awake is owned by omarchy.idle; bind, never cache. The cup steams
   // only while stay-awake keeps it hot, so the bar shows the state at a
   // glance without a separate indicator.
-  readonly property var idleService: bar && bar.shell ? bar.shell.firstPartyServiceFor("omarchy.idle") : null
-  readonly property bool stayAwake: idleService ? idleService.stayAwake === true : false
+  readonly property var ristrettoService: bar && bar.shell ? bar.shell.serviceFor(root.moduleName) : null
+  readonly property var idleService: ristrettoService && ristrettoService.scopedHost === true
+    ? (ristrettoService.hostBridge ? ristrettoService.hostBridge.idle : null)
+    : (bar && bar.shell ? bar.shell.firstPartyServiceFor("omarchy.idle") : null)
+  readonly property bool stayAwake: idleService ? idleService.stayAwake === true
+    && (!ristrettoService || ristrettoService.scopedHost !== true || idleService.current === true) : false
 
   // The panel is loaded standalone, so the host has to hand it everything it
   // cannot reach on its own: the bar, this widget's settings, and the button

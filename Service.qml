@@ -13,32 +13,119 @@ Item {
   // Injected by omarchy-shell's service loader.
   property var shell: null
 
-  readonly property var idleService: shell ? shell.firstPartyServiceFor("omarchy.idle") : null
-  readonly property var lockService: shell ? shell.firstPartyServiceFor("omarchy.lock") : null
+  readonly property bool scopedHost: shell !== null && !hasLegacyShellConfig
+  readonly property var hostBridge: bridgeLoader.item
+  readonly property var idleService: scopedHost ? (hostBridge && hostBridge.available ? hostBridge.idle : null)
+    : (shell ? shell.firstPartyServiceFor("omarchy.idle") : null)
+  readonly property var lockService: scopedHost ? (hostBridge && hostBridge.available ? hostBridge : null)
+    : (shell ? shell.firstPartyServiceFor("omarchy.lock") : null)
+  property string bridgeQsExecutable: "/usr/bin/qs"
+  property string bridgeConfigPath: Quickshell.env("HOME") + "/.config/omarchy/shell.json"
+  property int _suspendGeneration: 0
+  property string _countdownToken: ""
+  property bool _preflightPending: false
+
+  Loader {
+    id: bridgeLoader
+    active: root.scopedHost
+    sourceComponent: Component {
+      HostBridge {
+        active: root.scopedHost
+        originIdleSource: root.originIdleSource
+        qsExecutable: root.bridgeQsExecutable
+        configPath: root.bridgeConfigPath
+      }
+    }
+  }
+  Connections {
+    target: root.hostBridge
+    function onCancelled(reason) { root.cancelScopedCountdown(reason) }
+    function onEligibleChanged() {
+      if (root.hostBridge && root.hostBridge.eligible) root.armScopedCountdown()
+      else root.cancelScopedCountdown("idle lock eligibility lost")
+    }
+    function onDelayWriteFinished(success) {
+      if (!success) root.log("idle delay update failed: " + root.hostBridge.lastError)
+    }
+  }
+  function cancelScopedCountdown(reason) {
+    if (!root.scopedHost && !root._countdownToken && !root._preflightPending) return
+    root._suspendGeneration += 1
+    root._countdownToken = ""
+    root._preflightPending = false
+    root.idleLockPending = false
+    originSettle.stop()
+    suspendTimer.stop()
+    latchExpiry.stop()
+  }
+  function armScopedCountdown() {
+    if (!root.scopedHost || !root.hostBridge || !root.hostBridge.eligible || !root.armable) return
+    if (root._countdownToken === root.hostBridge.token) return
+    root._countdownToken = root.hostBridge.token
+    root.idleLockPending = true
+    suspendTimer.interval = root.sleepSeconds * 1000
+    suspendTimer.restart()
+    root._debugArmedAtMs = Date.now()
+    log("verified idle lock: suspend in " + root.sleepSeconds + "s" + (root.dryRun ? " (dry run)" : ""))
+  }
+  function writeIdleDelay(kind, seconds) {
+    return root.hostBridge ? root.hostBridge.writeDelay(kind, seconds) : false
+  }
 
   readonly property bool locked: lockService ? lockService.locked === true : false
   // `locked` rises as soon as a lock is REQUESTED, before any secure lock
   // screen exists; with no real output the request can stay pending forever.
   // secureLocked is the one that actually means the screen is locked.
   readonly property bool secureLocked:
-    locked && !(lockService && lockService.pendingSessionLock === true)
+    locked && (scopedHost ? lockService.secure === true
+                         : !(lockService && lockService.pendingSessionLock === true))
   readonly property string idleEvent: idleService ? String(idleService.lastEvent || "") : ""
   readonly property bool stayAwake: idleService ? idleService.stayAwake === true : false
 
-  readonly property var shellConfig: shell ? shell.shellConfig : null
+  // Older hosts expose the complete shell config; newer plugin facades only
+  // expose a copied bar snapshot. Prefer whichever capability is present.
+  readonly property var legacyShellConfig: shell && typeof shell.shellConfig !== "undefined"
+    ? shell.shellConfig : null
+  readonly property var barConfigSnapshot: shell && typeof shell.barConfig !== "undefined"
+    ? shell.barConfig : null
+  readonly property bool hasLegacyShellConfig:
+    legacyShellConfig !== null && typeof legacyShellConfig === "object"
+      && !Array.isArray(legacyShellConfig)
+  readonly property bool hasBarConfigSnapshot:
+    barConfigSnapshot !== null && typeof barConfigSnapshot === "object"
+      && !Array.isArray(barConfigSnapshot)
+  readonly property var settingsConfig:
+    hasLegacyShellConfig ? legacyShellConfig
+                         : (hasBarConfigSnapshot ? ({ bar: barConfigSnapshot }) : null)
+  readonly property var settingsEntry:
+    Model.entryFor(settingsConfig, "halmylyseas.ristretto")
+  readonly property string settingsDiagnostic: {
+    if (!hasLegacyShellConfig && !hasBarConfigSnapshot) return "missing snapshot"
+    if (!settingsEntry) return "missing own entry"
+    return ""
+  }
+  readonly property string capabilityDiagnostic: {
+    if (!idleService && !lockService) return "missing idle/lock capability"
+    if (!idleService) return "missing idle capability"
+    if (!lockService) return "missing lock capability"
+    return ""
+  }
 
   // Production never assigns this; a probe lowers it to arm short countdowns
   // without waiting real minutes for the normal 60s floor.
   property int minSleepSeconds: 60
 
   readonly property var _sleepNormalized: Model.normalizeSleepSeconds(
-    Model.settingFromConfig(shellConfig, "halmylyseas.ristretto", "sleepAfterIdleLock", Model.SLEEP_NEVER),
+    Model.settingFromConfig(settingsConfig, "halmylyseas.ristretto", "sleepAfterIdleLock", Model.SLEEP_NEVER),
     root.minSleepSeconds)
   readonly property int sleepSeconds: _sleepNormalized.seconds
   readonly property bool dryRun: Model.normalizeDryRun(
-    Model.settingFromConfig(shellConfig, "halmylyseas.ristretto", "dryRun", false))
+    Model.settingFromConfig(settingsConfig, "halmylyseas.ristretto", "dryRun", false))
 
-  readonly property bool armable: sleepSeconds > 0
+  readonly property bool suspendSupported: idleService !== null && lockService !== null
+  // A configured delay is not an operational promise when either host
+  // capability is unavailable; suspend remains fail-safe in that state.
+  readonly property bool armable: sleepSeconds > 0 && suspendSupported
 
   // Debug-only, read by the probe harness -- production never reads these.
   readonly property bool _debugSuspendTimerRunning: suspendTimer.running
@@ -59,6 +146,7 @@ Item {
   property bool originIdleAtAnnounce: false
 
   onIdleEventChanged: {
+    if (root.scopedHost) return
     if (idleEvent.indexOf("lock-system") === 0) {
       root.idleLockAnnounced = true
       root.originIdleAtAnnounce = !!(root.originIdleSource && root.originIdleSource.isIdle === true)
@@ -91,6 +179,7 @@ Item {
   // edge (onSecureLockedChanged below). Unlock is decided on `locked`
   // alone -- a never-secured lock still needs its latch and countdown cleared.
   onLockedChanged: {
+    if (root.scopedHost) return
     if (locked) {
       latchExpiry.stop()
       if (!root.idleLockPending) {
@@ -122,7 +211,7 @@ Item {
   // real screen leaves pendingSessionLock true forever and must never arm.
   // Calling this twice in one tick (if both edges land together) is harmless.
   onSecureLockedChanged: {
-    if (secureLocked) maybeArmForSecureLock()
+    if (!root.scopedHost && secureLocked) maybeArmForSecureLock()
   }
 
   function maybeArmForSecureLock() {
@@ -211,6 +300,29 @@ Item {
   // (or lost its secure lock, or lost the latch) between the timer firing
   // and this running.
   function suspend() {
+    if (root.scopedHost) {
+      if (!root.hostBridge || !root._countdownToken || root._preflightPending || !root.armable) return
+      var generation = root._suspendGeneration
+      var candidate = root._countdownToken
+      var delay = root.sleepSeconds
+      var wasDryRun = root.dryRun
+      root._preflightPending = true
+      root.hostBridge.preflight(candidate, function(success) {
+        if (generation !== root._suspendGeneration) return
+        root._preflightPending = false
+        if (!success || !root.hostBridge || root.hostBridge.token !== candidate
+            || root.sleepSeconds !== delay || root.dryRun !== wasDryRun) {
+          root.cancelScopedCountdown("suspend preflight failed")
+          return
+        }
+        root.performSuspend()
+      })
+      return
+    }
+    root.performSuspend()
+  }
+
+  function performSuspend() {
     if (!root.locked) {
       log("fired but no longer locked -- ignoring")
       return
@@ -925,6 +1037,7 @@ Item {
   // from the one that just changed may not have re-evaluated yet inside
   // this handler, so `armable` could still print the previous value.
   onSleepSecondsChanged: {
+    if (root.scopedHost) root.cancelScopedCountdown("sleep delay changed")
     // A delay change while a countdown runs means "not that countdown":
     // cancel rather than guess. The next idle lock arms with the new value.
     if (suspendTimer.running) {
@@ -937,7 +1050,11 @@ Item {
       log("sleepAfterIdleLock is below the " + root.minSleepSeconds + "s floor -- treated as never")
     log("sleep delay is now " + (sleepSeconds > 0 ? sleepSeconds + "s" : "never"))
   }
-  onDryRunChanged: log("dry run is now " + dryRun)
+  onDryRunChanged: {
+    if (root.scopedHost) root.cancelScopedCountdown("dry run changed")
+    log("dry run is now " + dryRun)
+  }
+  onScopedHostChanged: root.cancelScopedCountdown("host capability changed")
 
   // The panel promises "no screensaver, no lock, no sleep" under
   // stay-awake; a countdown (or a settle still verifying origin) armed
@@ -979,9 +1096,8 @@ Item {
     }
   }
 
-  // A string-form bar-layout entry ("some.id") has no object for
-  // updateEntryInline to read/write, so settings silently never persist;
-  // this delayed check gives that failure a voice. Plain: a probe shortens the wait.
+  // Report each unavailable source separately; a copied bar snapshot is the
+  // supported settings source on current plugin facades.
   property int configEntryCheckMs: 15000
 
   Timer {
@@ -989,9 +1105,10 @@ Item {
     running: true
     repeat: false
     onTriggered: {
-      if (Model.entryFor(root.shellConfig, "halmylyseas.ristretto") === null)
-        log("no config entry found -- settings cannot persist and defaults are in effect " +
-            "(a string-form bar-layout entry has this effect; make it an object with an id key)")
+      if (root.settingsDiagnostic)
+        log("settings unavailable: " + root.settingsDiagnostic + " -- defaults are in effect")
+      if (root.capabilityDiagnostic)
+        log("suspend unavailable: " + root.capabilityDiagnostic)
     }
   }
 
