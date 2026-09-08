@@ -1,9 +1,9 @@
 # Changelog
 
-Notable user-facing changes, newest first. Unreleased changes are not yet a
-marketplace release; the manifest remains at the last released version.
+Notable user-facing changes, newest first. Marketplace verification applies
+to an exact commit and is tracked separately from the version.
 
-## 1.1.1-rc.1 — 2026-09-09
+## 1.2.0 — 2026-09-09
 
 ### Fixed
 
