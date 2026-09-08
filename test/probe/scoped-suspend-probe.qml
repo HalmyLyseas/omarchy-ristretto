@@ -1,5 +1,6 @@
 import QtQuick
 import Quickshell
+import Quickshell.Io
 
 ShellRoot {
   id: root
@@ -14,6 +15,7 @@ ShellRoot {
     property var barConfig: ({layout:{left:[{id:"halmylyseas.ristretto",sleepAfterIdleLock:1,dryRun:true}],center:[],right:[]}})
     function firstPartyServiceFor(id) { return null }
   }
+  FileView { id: ownConfigWriter; path: Quickshell.env("HOME") + "/.config/omarchy/shell.json"; preload: false; atomicWrites: true }
   function check(name, result) { checks = checks.concat([{name:name,pass:!!result}]) }
   function event(source, body) { console.log("omarchy " + source + " " + new Date().toISOString() + " " + body) }
   function trace() {
@@ -37,7 +39,7 @@ ShellRoot {
     running: true
     onTriggered: {
       if (!service || !service.hostBridge) return
-      if (phase === 0 && service.hostBridge.available) {
+      if (phase === 0 && service.hostBridge.available && service.sleepSeconds === 1) {
         phase = 1
         drive.start()
       } else if (phase === 2 && service._debugSuspendTimerRunning) {
@@ -48,7 +50,7 @@ ShellRoot {
       } else if (phase === 3 && mode !== "success" && service._preflightPending) {
         phase = 4
         if (mode === "delay-change") {
-          host.barConfig = ({layout:{left:[{id:"halmylyseas.ristretto",sleepAfterIdleLock:2,dryRun:true}]}})
+          ownConfigWriter.setText(JSON.stringify({version:1,bar:{layout:{left:[{id:"halmylyseas.ristretto",sleepAfterIdleLock:2,dryRun:true}]}}}))
         } else if (mode === "stay-awake") {
           event("idle", "stay-awake: enabled ipc")
         } else {

@@ -22,6 +22,11 @@ ShellRoot {
     plugins: []
   })
 
+  FileView { id: ownConfigWriter; path: Quickshell.env("HOME") + "/.config/omarchy/shell.json"; preload: false; atomicWrites: true }
+  function persistFacadeConfig() {
+    ownConfigWriter.setText(JSON.stringify({version:1,bar:probeRoot.shellConfigObj.bar,plugins:[]}) + "\n")
+  }
+
   function buildConfig(entryPatch) {
     var entry = { id: "halmylyseas.ristretto" }
     for (var k in entryPatch) entry[k] = entryPatch[k]
@@ -103,7 +108,7 @@ ShellRoot {
             if (values[i] && values[i].id === id) values[i] = replacement
         }
         probeRoot.shellConfigObj = { bar: snapshot, plugins: [] }
-        facadeLoader.item.barConfig = snapshot
+        persistFacadeConfig()
         return true
       }
     }
@@ -248,6 +253,7 @@ ShellRoot {
     if (include !== false) snapshot.layout[section || "right"] = [entry]
     probeRoot.shellConfigObj = { bar: snapshot, plugins: [] }
     if (facadeLoader.item) facadeLoader.item.barConfig = snapshot
+    persistFacadeConfig()
   }
 
   function facadeSibling() {

@@ -28,12 +28,12 @@ No command changes the installed host tree or requires root.
 
 | Boundary | Guard |
 |---|---|
-| Scoped plugin API | Own settings use the copied bar snapshot. No privileged clone, full-bar identity, parent traversal, or upstream host modification. |
+| Scoped plugin API | Own writes use the scoped API; a singleton watcher reads only the saved own entry into service state. No privileged clone, full-bar identity, parent traversal, or upstream host modification. |
 | Idle/lock observation | Own-process PID-pinned current-boot user journal, fresh nonce after replay, periodic barriers, bounded phase deadlines, and reconnect generations. Only required event fields are parsed. |
 | Raw input | Wall and monotonic timestamps reconstruct idle before the source announcement. Equal-millisecond ambiguity, clock discontinuity, or absent history reject origin. |
 | Suspend dispatch | Secure idle token, fresh barrier, loaded/enabled idle status, secure nonpending lock status, second barrier, and synchronous settings/cancellation checks. |
 | Shared config | Owned regular version-1 JSON, size limit, symlink rejection, same-directory temporary file, atomic replace, sidecar flock, final identity/content comparison, one retry, and subsequent host-state verification. |
-| Own settings | Type/range normalization and whole-entry merge preserve sibling settings. Sleep defaults to never. |
+| Own settings | Watched version-1 JSON; missing or invalid entries disable sleep. Type/range normalization and whole-entry merge preserve sibling settings. Sleep defaults to never. |
 | Child tools | Fixed argv, direct Process children, bounded collected output, deadline TERM then PID-guarded KILL, generation-aware completion. |
 | User-writable toggle directory | FileView watches without preloading; native exit-code probe reads flag state. |
 
@@ -72,3 +72,7 @@ A compromised same-user session, host process, plugin, installed binary,
 kernel, or package supply chain can bypass these boundaries. The plugin
 trusts installed Omarchy, Quickshell, Python, systemd, and native tools.
 It does not claim isolation from code running inside the same host process.
+
+- The own-entry FileView reads asynchronously and rejects JSON above 1 MiB
+  before parsing. That check bounds accepted content, not the initial file
+  allocation; the host also trusts this user-owned configuration path.

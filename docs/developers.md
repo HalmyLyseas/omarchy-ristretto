@@ -1,7 +1,7 @@
 # Developer notes
 
 The distilled why and how of this plugin, for a contributor starting from
-a bare clone. The README covers using it; `CLAUDE.md` carries the project
+a bare clone. The README covers using it; `AGENTS.md` carries the project
 rules; `docs/threat-model.md` carries the asset/boundary model.
 
 ## Architecture
@@ -83,12 +83,20 @@ state) for the probe harnesses below; production code never reads them.
   setBarWidget` merges safely. A plain-string bar-layout entry
   (`"some.id"`) renders fine but can hold no settings at all; the service
   logs separate delayed diagnostics for missing settings and missing host
-  observation. Scoped facades expose a copied `barConfig`, which supplies
-  the own-entry settings and refreshes on host replacements.
+  observation. Scoped facades expose a copied `barConfig`, but inline writes do not refresh
+  that copy. The service therefore watches `shell.json` and retains only its
+  own entry. The panel displays service values, not an optimistic widget copy.
+  Missing, malformed, or deleted settings cancel sleep until valid data returns.
 - **Defaults fail safe.** `sleepAfterIdleLock` ships as `-1` (never), so an
   install changes nothing until the user picks a delay. `dryRun` is a
   config-only testing valve, off by default — the delay default is the
   guard, not `dryRun`.
+
+The scoped settings watcher uses `preload: false` and nonblocking reads;
+`text()` explicitly starts each read after `reload()`. JSON over 1 MiB is
+rejected before parsing, though FileView has already loaded its contents.
+Legacy hosts retain their live `shellConfig` binding. No widget owns this
+watcher, so monitor and panel lifetimes cannot overwrite service settings.
 
 ## Config normalization
 
@@ -140,6 +148,11 @@ compositor idle state cannot be scripted).
 - **Any bar-widget edit — and any new file — needs `omarchy restart
   shell`.** Hot reload never re-creates a registered widget component, and
   a file added after the first scan fails with `File name case mismatch`.
+- The host hot-reloads `shell.json` changes, but verify that the service reflects
+  its own settings before relying on a live update. Scoped own-entry changes
+  are read asynchronously by a singleton watcher, without a shell reload.
+  This does not replace the
+  shell restart required after QML code deployment or adding files.
 - **Every file save under the plugin folder triggers a full plugin
   reload** (the shell runs `inotifywait -r`), which tears down and
   rebuilds every plugin widget. `.git/` is exempt, so commits are quiet.

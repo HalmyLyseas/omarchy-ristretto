@@ -48,8 +48,10 @@ Compatibility targets: Omarchy 4.0.1 through 4.0.3, Quickshell 0.3.1. Relevant p
 The canonical repo is the installed folder,
 `~/.config/omarchy/plugins/halmylyseas.ristretto/` -- what the shell loads
 and what `omarchy plugin validate`/the marketplace check. Develop in a
-separate clone, commit there, then deploy in one burst:
-`git -C ~/.config/omarchy/plugins/halmylyseas.ristretto pull <work-clone> master`.
+separate clone on a development branch, commit there, then deploy in one
+burst by pulling that branch into the installed checkout. Do not pull from
+`master` during development; restart the shell after deploying code or adding
+files.
 Never edit files directly under the installed folder -- the shell watches
 it with `inotifywait -r`, and every save tears down and rebuilds the bar.
 
@@ -60,14 +62,26 @@ machine-wide watcher; `BarWidget.qml`/`Panel.qml` (one per monitor) bind
 its state and write through the shell's config API; `Model.js` is pure
 ES5 logic, testable with plain Node. Scoped hosts use `HostBridge.qml`,
 `HostIdle.qml`, `HostOrigin.qml`, and `OriginModel.js`; the narrow Python
-helper writes shared idle delays only after a slider action. Full detail: `docs/developers.md`.
+helper writes shared idle delays only after a slider action. Scoped own settings
+come from a singleton watched file entry, because copied facade snapshots can
+remain stale after widget writes. Panels display the service values. Full detail: `docs/developers.md`.
 
 ## Testing
 
-`bash test/all` runs Node and Python tests, read-only host contracts,
+The host hot-reloads `shell.json` changes; verify that the service reflects its
+own settings before relying on a live change. QML code changes and new files
+require a shell restart. `bash test/all` runs Node and Python tests, read-only host contracts,
 hygiene and sink scans, and real QML probes with mocked mutations.
 `bash test/ci-local` adds lint and validation and runs under headless cage.
 See `docs/developers.md` for contracts and supported behavior.
+
+Before a live lock or suspend test, state the expected timing and user-visible
+behavior, then pause at least 20 seconds before starting the disruptive action.
+Obtain explicit authorization before any test that can lock, blank, or suspend
+the session.
+
+Do not treat copied facade settings as proof of active state. Exercise the
+real widget, compare disk and service values, and restore the starting settings.
 
 ## Releasing
 

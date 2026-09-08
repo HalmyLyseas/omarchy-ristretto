@@ -39,12 +39,18 @@ stay in sync with their CLI equivalents in both directions.
 
 Ristretto uses the installed Omarchy shell, Quickshell, and Python 3.
 
-- **Omarchy 4.0.1 or later, Quickshell 0.3.1.** Older hosts expose live
-  service bindings. On Omarchy 4.0.3, the plugin reads its own settings from
-  the scoped bar snapshot and uses IPC plus timestamped host logs for idle
+- **Omarchy 4.0.1 through 4.0.3, Quickshell 0.3.1.** The scoped host path is
+  live-tested on Omarchy 4.0.3; legacy host behavior is covered by contracts
+  and mocked probes for the earlier versions. Older hosts expose live service
+  bindings. On Omarchy 4.0.3, the plugin watches its own entry in `shell.json`
+  and uses IPC plus timestamped host logs for idle
   and lock observations. Unavailable observations disable suspend safely.
+  Newer host versions require compatibility validation before use.
 - **Python 3** for scoped-host delay edits. The helper updates only the
   shared idle timing pair in `~/.config/omarchy/shell.json`; no root is needed.
+- **User journal access** for scoped idle observation. Start the shell through
+  Omarchy so its output reaches the journal; a standalone shell with no journal
+  stream cannot establish idle origin.
 - **systemd-logind** for the suspend itself — `systemctl suspend` from the
   active session, no root and no polkit prompt.
 
@@ -132,6 +138,11 @@ components. `bash test/ci-local [--no-cage]` adds lint and validation and
 runs the QML probes under a headless compositor by default. All mutating
 commands in the probes are mocked; temporary files hold test configuration.
 
+For a live lock or suspend test, state the expected timing and user-visible
+behavior, then pause at least 20 seconds before starting the disruptive action.
+Restart the shell after code deployment. Obtain explicit approval before any
+test that can lock, blank, or suspend the session.
+
 ## Developing
 
 Design decisions, host-API traps, and the testing workflow are in
@@ -140,3 +151,5 @@ Design decisions, host-API traps, and the testing workflow are in
 ## Licence
 
 [MIT](LICENSE)
+
+See [CHANGELOG.md](CHANGELOG.md) for version history and unreleased changes.

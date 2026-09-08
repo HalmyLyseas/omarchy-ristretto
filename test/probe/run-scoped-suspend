@@ -14,7 +14,8 @@ ln -s "$PLUGIN_DIR/test/mocks/omarchy-toggle-enabled" "$OUT/omarchy-toggle-enabl
 run_case() {
   local mode="$1" log="$OUT/$1.log" mocklog="$OUT/$1.mock"
   local bridge_mode="eligible"; [[ "$mode" != success ]] && bridge_mode="unlock-pending"
-  mkdir -p "$OUT/home" "$OUT/runtime"
+  mkdir -p "$OUT/home/.config/omarchy" "$OUT/runtime"
+  printf '{"version":1,"bar":{"layout":{"left":[{"id":"halmylyseas.ristretto","sleepAfterIdleLock":1,"dryRun":true}]}}}\n' > "$OUT/home/.config/omarchy/shell.json"
   chmod 700 "$OUT/home" "$OUT/runtime"
   printf 'PATH="%s:/usr/bin:/bin"\n' "$OUT" > "$OUT/home/.bash_profile"
   HOST_BRIDGE_MODE="$bridge_mode" SCOPED_SUSPEND_MODE="$mode" SCOPED_SUSPEND_QS="$OUT/qs-host-bridge" \

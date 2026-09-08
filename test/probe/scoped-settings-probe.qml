@@ -1,5 +1,6 @@
 import QtQuick
 import Quickshell
+import Quickshell.Io
 
 ShellRoot {
   id: root
@@ -9,6 +10,10 @@ ShellRoot {
   property var service: null
   property var widget: null
   property var shellApi: null
+  property var waiting: null
+  property var continuation: null
+  property int attempts: 0
+  property var secondWidget: null
   property var entry: ({id: "halmylyseas.ristretto", sleepAfterIdleLock: 60, dryRun: true, sibling: "kept"})
 
   function check(name, value) { checks = checks.concat([{name: name, pass: !!value}]) }
@@ -31,7 +36,7 @@ ShellRoot {
         if (id !== "halmylyseas.ristretto") return false
         root.entry = ({id: id, sleepAfterIdleLock: settings.sleepAfterIdleLock,
                        dryRun: settings.dryRun, sibling: settings.sibling})
-        item.barConfig = ({layout: {left: [], center: [], right: [root.entry]}})
+        saveEntry(root.entry)
         if (root.widget) root.widget.settings = root.entry
         return true
       }
@@ -77,31 +82,76 @@ ShellRoot {
     service = s
     return s
   }
-  function exercise() {
-    if (!widget || !widget._debugPanelItem) {
-      check("real panel loaded", false)
-      finish()
-      return
+  FileView { id: configWriter; path: Quickshell.env("HOME") + "/.config/omarchy/shell.json"; preload: false; atomicWrites: true }
+  Process { id: removeConfig; command: ["/usr/bin/rm", Quickshell.env("HOME") + "/.config/omarchy/shell.json"] }
+  function saveEntry(value) {
+    configWriter.setText(JSON.stringify({version:1,bar:{layout:{right:value ? [value] : []}}}))
+  }
+  function until(predicate, next) { waiting = predicate; continuation = next; attempts = 0 }
+  Timer {
+    interval: 25; repeat: true; running: root.waiting !== null
+    onTriggered: {
+      if (!root.waiting()) {
+        if (++root.attempts > 120) { check("settings propagation timeout", false); finish() }
+        return
+      }
+      var next = root.continuation
+      root.waiting = null
+      root.continuation = null
+      next()
     }
+  }
+  function exercise() {
+    if (!widget || !widget._debugPanelItem) { check("real panel loaded", false); finish(); return }
     var p = widget._debugPanelItem
     check("scoped host", service.scopedHost === true)
     check("initial sleep", service.sleepSeconds === 60 && p.sleepSeconds === 60)
     check("initial sibling", p.dryRun === true)
+    var generation = service._suspendGeneration
     p.commitSleep(300)
+    check("write intent cancels before persistence", service._suspendGeneration > generation)
     check("entry merged", root.entry.sleepAfterIdleLock === 300 && root.entry.dryRun === true && root.entry.sibling === "kept")
-    check("service follows barConfig", service.sleepSeconds === 300)
-    root.shellApi._serviceLookup = function(id) { return null }
-    var old = service
-    service = null
-    old.destroy()
-    Qt.callLater(function() {
-      check("panel unavailable after destroy", p.suspendAvailable === false && p.heroStatus.indexOf("unavailable") >= 0)
-      makeService()
-      Qt.callLater(function() {
-        check("panel follows recreated service", p.ristrettoService === service && p.ristrettoService !== old
-          && !p.idleAvailable && p.suspendAvailable === false && service.sleepSeconds === 300
-          && service.dryRun === true)
-        finish()
+    until(function() { return service.sleepSeconds === 300 }, function() {
+      check("service follows persisted settings", p.sleepSeconds === 300 && service.dryRun === true)
+      check("facade snapshot remains stale", shellApi.barConfig.layout.right[0].sleepAfterIdleLock === 60)
+      saveEntry({id:"halmylyseas.ristretto",sleepAfterIdleLock:180,dryRun:false,sibling:"kept"})
+      until(function() { return service.sleepSeconds === 180 && !service.dryRun }, function() {
+        check("panel displays active external settings", p.sleepSeconds === 180 && !p.dryRun && root.entry.sleepAfterIdleLock === 300)
+        var component = Qt.createComponent("file://" + root.pluginDir + "/BarWidget.qml")
+        secondWidget = component.createObject(root, {bar:barStub,settings:{sleepAfterIdleLock:600,dryRun:true}})
+        check("stale second monitor cannot override settings", service.sleepSeconds === 180 && !service.dryRun)
+        root.shellApi._serviceLookup = function(id) { return null }
+        var old = service
+        service = null
+        old.destroy()
+        Qt.callLater(function() {
+          check("panel unavailable after destroy", p.suspendAvailable === false && p.heroStatus.indexOf("unavailable") >= 0)
+          makeService()
+          until(function() { return service.sleepSeconds === 180 }, function() {
+            check("panel follows recreated service", p.ristrettoService === service && p.sleepSeconds === 180 && !p.dryRun)
+            configWriter.setText("invalid JSON")
+            until(function() { return service.sleepSeconds === -1 }, function() {
+              check("invalid file clears stale settings", !service.dryRun && !!service.settingsDiagnostic && p.sleepSeconds === -1)
+              saveEntry(null)
+              until(function() { return service.settingsDiagnostic === "missing own entry" }, function() {
+                check("missing entry fails safe", service.sleepSeconds === -1)
+                saveEntry({id:"halmylyseas.ristretto",sleepAfterIdleLock:240,dryRun:true})
+                until(function() { return service.sleepSeconds === 240 }, function() {
+                  removeConfig.running = true
+                  until(function() { return service.sleepSeconds === -1 }, function() {
+                    check("deleted file clears settings", !service.dryRun && !!service.settingsDiagnostic)
+                    saveEntry({id:"halmylyseas.ristretto",sleepAfterIdleLock:120,dryRun:false})
+                    until(function() { return service.sleepSeconds === 120 }, function() {
+                      check("recreated file restores settings", p.sleepSeconds === 120 && !p.dryRun)
+                      secondWidget.destroy()
+                      finish()
+                    })
+                  })
+                })
+              })
+            })
+          })
+        })
       })
     })
   }

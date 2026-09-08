@@ -42,11 +42,13 @@ Panel {
   // The plugin's own settings, run through the same normalizers the service
   // applies to its shellConfig read -- a hand-edited or legacy value must
   // never look different from the bar than it behaves when it actually fires.
-  readonly property int sleepSeconds: Model.normalizeSleepSeconds(
-    setting("sleepAfterIdleLock", Model.SLEEP_NEVER),
-    ristrettoService ? ristrettoService.minSleepSeconds : 60).seconds
+  readonly property int sleepSeconds: root.scopedHost && ristrettoService && typeof ristrettoService.sleepSeconds === "number"
+    ? ristrettoService.sleepSeconds : Model.normalizeSleepSeconds(
+      setting("sleepAfterIdleLock", Model.SLEEP_NEVER),
+      ristrettoService ? ristrettoService.minSleepSeconds : 60).seconds
   readonly property int sleepIndex: Model.sleepIndexFor(sleepSeconds)
-  readonly property bool dryRun: Model.normalizeDryRun(setting("dryRun", false))
+  readonly property bool dryRun: root.scopedHost && ristrettoService && typeof ristrettoService.dryRun === "boolean"
+    ? ristrettoService.dryRun : Model.normalizeDryRun(setting("dryRun", false))
 
   // Stay awake is owned by omarchy.idle; bind, never cache.
   readonly property bool scopedHost: ristrettoService && ristrettoService.scopedHost === true
@@ -179,6 +181,7 @@ Panel {
   function commitSleep(seconds) {
     var host = root.shell
     if (!host || typeof host.updateEntryInline !== "function") return
+    if (root.scopedHost) root.ristrettoService.cancelScopedCountdown("sleep delay change requested")
     host.updateEntryInline(root.moduleName,
                            Model.mergedSettings(root.settings, "sleepAfterIdleLock", seconds))
   }

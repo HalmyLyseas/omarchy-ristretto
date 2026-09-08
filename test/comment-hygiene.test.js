@@ -69,6 +69,8 @@ const FORBIDDEN = [
 ];
 
 function commentText(file, text) {
+  if (file === "CHANGELOG.md")
+    return text.replace(/^## \d+\.\d+\.\d+ — \d{4}-\d{2}-\d{2}$/gm, "");
   if (extname(file) === ".md") return text;
   if (basename(file) === "LICENSE") return "";
   const lines = text.split("\n");

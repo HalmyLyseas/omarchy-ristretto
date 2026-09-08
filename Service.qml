@@ -25,6 +25,8 @@ Item {
   property int _suspendGeneration: 0
   property string _countdownToken: ""
   property bool _preflightPending: false
+  property var _scopedSettingsEntry: null
+  property string _scopedSettingsError: ""
 
   Loader {
     id: bridgeLoader
@@ -99,14 +101,51 @@ Item {
     barConfigSnapshot !== null && typeof barConfigSnapshot === "object"
       && !Array.isArray(barConfigSnapshot)
   readonly property var settingsConfig:
-    hasLegacyShellConfig ? legacyShellConfig
-                         : (hasBarConfigSnapshot ? ({ bar: barConfigSnapshot }) : null)
+    root.scopedHost
+      ? (_scopedSettingsEntry ? ({ bar: { layout: { left: [_scopedSettingsEntry] } } }) : null)
+      : (hasLegacyShellConfig ? legacyShellConfig
+                              : (hasBarConfigSnapshot ? ({ bar: barConfigSnapshot }) : null))
   readonly property var settingsEntry:
-    Model.entryFor(settingsConfig, "halmylyseas.ristretto")
+    root.scopedHost ? _scopedSettingsEntry : Model.entryFor(settingsConfig, "halmylyseas.ristretto")
   readonly property string settingsDiagnostic: {
+    if (root.scopedHost) return _scopedSettingsError
     if (!hasLegacyShellConfig && !hasBarConfigSnapshot) return "missing snapshot"
     if (!settingsEntry) return "missing own entry"
     return ""
+  }
+  function refreshScopedSettings() {
+    if (!root.scopedHost) return
+    scopedSettingsFile.reload()
+    scopedSettingsFile.text()
+  }
+  function clearScopedSettings(reason) {
+    if (!root.scopedHost) return
+    root._scopedSettingsEntry = null
+    root._scopedSettingsError = reason
+  }
+  function loadScopedSettings(raw) {
+    if (!root.scopedHost) return
+    var text = String(raw || "")
+    if (text.length > 1048576) { root.clearScopedSettings("config too large"); return }
+    var parsed
+    try { parsed = JSON.parse(text) } catch (e) {
+      root.clearScopedSettings("config invalid")
+      return
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed) || parsed.version !== 1) {
+      root.clearScopedSettings("config invalid")
+      return
+    }
+    var entry = Model.entryFor(parsed, "halmylyseas.ristretto")
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      root.clearScopedSettings("missing own entry")
+      return
+    }
+    try { root._scopedSettingsEntry = JSON.parse(JSON.stringify(entry)) } catch (e2) {
+      root.clearScopedSettings("config invalid")
+      return
+    }
+    root._scopedSettingsError = ""
   }
   readonly property string capabilityDiagnostic: {
     if (!idleService && !lockService) return "missing idle/lock capability"
@@ -717,6 +756,18 @@ Item {
     onFileChanged: root.refreshScreensaverFlag()
   }
 
+  FileView {
+    id: scopedSettingsFile
+    path: root.bridgeConfigPath
+    preload: false
+    blockLoading: false
+    watchChanges: root.scopedHost
+    printErrors: false
+    onLoaded: root.loadScopedSettings(text())
+    onLoadFailed: root.clearScopedSettings("config load failed")
+    onFileChanged: root.refreshScopedSettings()
+  }
+
   // Each Process below gets a watchdog Timer (TERM, then a PID-guarded
   // KILL a second later) and the generation-counter failed-start finalize
   // (onRunningChanged + Qt.callLater) so a missing binary is never lost.
@@ -1058,7 +1109,15 @@ Item {
     if (root.scopedHost) root.cancelScopedCountdown("dry run changed")
     log("dry run is now " + dryRun)
   }
-  onScopedHostChanged: root.cancelScopedCountdown("host capability changed")
+  onScopedHostChanged: {
+    root.cancelScopedCountdown("host capability changed")
+    if (root.scopedHost) Qt.callLater(root.refreshScopedSettings)
+    else {
+      root._scopedSettingsEntry = null
+      root._scopedSettingsError = ""
+    }
+  }
+  onBridgeConfigPathChanged: if (root.scopedHost) Qt.callLater(root.refreshScopedSettings)
 
   // The panel promises "no screensaver, no lock, no sleep" under
   // stay-awake; a countdown (or a settle still verifying origin) armed
@@ -1100,8 +1159,8 @@ Item {
     }
   }
 
-  // Report each unavailable source separately; a copied bar snapshot is the
-  // supported settings source on current plugin facades.
+  // Report each unavailable source separately. Scoped hosts use the watched
+  // own-entry file above; the snapshot diagnostics apply only to legacy hosts.
   property int configEntryCheckMs: 15000
 
   Timer {
@@ -1117,6 +1176,7 @@ Item {
   }
 
   Component.onCompleted: {
+    if (root.scopedHost) Qt.callLater(root.refreshScopedSettings)
     mkdirTogglesProc.command = ["mkdir", "-p", root.home + "/.local/state/omarchy/toggles"]
     root._armProcess("mkdirToggles")
     root.resolveToggle()

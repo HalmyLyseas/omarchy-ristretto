@@ -125,7 +125,8 @@ setup_scenario_env() {
   local label="$1" with_toggle_links="$2"
   local home="$OUT_DIR/$label-home"
   local linkdir="$OUT_DIR/$label-link"
-  mkdir -p "$home" "$linkdir"
+  mkdir -p "$home" "$linkdir" "$home/.config/omarchy"
+  printf '{"version":1,"bar":{"layout":{"right":[{"id":"halmylyseas.ristretto"}]}}}\n' > "$home/.config/omarchy/shell.json"
   ln -sfn "$MOCKS/omarchy-notification-send" "$linkdir/omarchy-notification-send"
   ln -sfn "$MOCKS/systemctl" "$linkdir/systemctl"
   if [[ "$with_toggle_links" == "yes" ]]; then
