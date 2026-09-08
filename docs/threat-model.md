@@ -29,7 +29,7 @@ No command changes the installed host tree or requires root.
 | Boundary | Guard |
 |---|---|
 | Scoped plugin API | Own settings use the copied bar snapshot. No privileged clone, full-bar identity, parent traversal, or upstream host modification. |
-| Idle/lock observation | Own-process PID-pinned detailed log, fresh nonce after replay, periodic barriers, bounded phase deadlines, and reconnect generations. Only required event fields are parsed. |
+| Idle/lock observation | Own-process PID-pinned current-boot user journal, fresh nonce after replay, periodic barriers, bounded phase deadlines, and reconnect generations. Only required event fields are parsed. |
 | Raw input | Wall and monotonic timestamps reconstruct idle before the source announcement. Equal-millisecond ambiguity, clock discontinuity, or absent history reject origin. |
 | Suspend dispatch | Secure idle token, fresh barrier, loaded/enabled idle status, secure nonpending lock status, second barrier, and synchronous settings/cancellation checks. |
 | Shared config | Owned regular version-1 JSON, size limit, symlink rejection, same-directory temporary file, atomic replace, sidecar flock, final identity/content comparison, one retry, and subsequent host-state verification. |
@@ -39,14 +39,14 @@ No command changes the installed host tree or requires root.
 
 ## Residual risks
 
-- Host log wording and Quickshell's detailed-log ordering are implementation
+- Host log wording and ordered journal stream delivery are implementation
   contracts, pinned to tested versions. A fresh marker proves reader
   progress through the same logging stream; it cannot compensate for a host
-  that silently omits or changes the relevant records. Contract drift needs
+  or journal that silently drops or changes relevant records. Contract drift needs
   investigation before extending support.
-- The follower replays to a fresh marker without `--tail`, whose Quickshell
-  0.3.1 implementation can discard later live records. A large log or a
-  slow reader can exceed bounds and leave suspend unavailable.
+- The journal follower replays to a fresh marker using `--no-tail`. A large
+  journal, unavailable user journal, rate limiting, or delayed delivery can
+  prevent observation and leave suspend unavailable.
 - A manual request racing an already spawned idle lock cannot always be
   distinguished from that lock's own request. Raw activity and phase checks
   narrow the window but do not provide a host-issued causal identifier.

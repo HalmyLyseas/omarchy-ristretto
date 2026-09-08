@@ -17,8 +17,8 @@ ShellRoot {
   function event(source, body, stamp) {
     console.log("omarchy " + source + " " + new Date(stamp || Date.now()).toISOString() + " " + body)
   }
-  function trace() {
-    event("idle", "lock-system: lock-timeout")
+  function trace(stamp) {
+    event("idle", "lock-system: lock-timeout", stamp)
     event("idle", "process-start: lock omarchy-system-lock")
     event("lock", "lock-requested")
     if (mode === "omitted-lock-state") event("idle", "process-exit: lock exitCode=0 status=0")
@@ -75,7 +75,8 @@ ShellRoot {
       } else if (mode === "ambiguous") {
         rawIdle.isIdle = false
         rawIdle.isIdle = true
-        trace()
+        var history = bridge.state.history
+        trace(history[history.length - 1].wallMs)
         rejectCheck.start()
       } else {
         trace()
@@ -138,7 +139,7 @@ ShellRoot {
   Timer { interval: 10000; running: true; onTriggered: { check("timeout", false); finish() } }
   Component.onCompleted: {
     loader.setSource("file://" + Quickshell.env("RISTRETTO_PLUGIN_DIR") + "/HostBridge.qml", {
-      qsExecutable:Quickshell.env("HOST_BRIDGE_QS"), originIdleSource:rawIdle,
+      logBackend:"qs", qsExecutable:Quickshell.env("HOST_BRIDGE_QS"), originIdleSource:rawIdle,
       hostPid:Quickshell.processId, hostInstance:Quickshell.instanceId,
       configPath:Quickshell.env("HOST_BRIDGE_CONFIG")
     })

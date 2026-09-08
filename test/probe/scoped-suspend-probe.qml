@@ -97,6 +97,6 @@ ShellRoot {
   Component.onCompleted: {
     var component = Qt.createComponent("file://" + Quickshell.env("RISTRETTO_PLUGIN_DIR") + "/Service.qml")
     service = component.createObject(root, {shell:host,minSleepSeconds:1,originIdleSource:rawIdle,
-      bridgeQsExecutable:Quickshell.env("SCOPED_SUSPEND_QS")})
+      bridgeLogBackend:"qs", bridgeQsExecutable:Quickshell.env("SCOPED_SUSPEND_QS")})
   }
 }

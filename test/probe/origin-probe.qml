@@ -25,7 +25,10 @@ ShellRoot {
     loader.active = false
     Qt.quit()
   }
-  function hostEvent(body) { console.log("omarchy idle " + new Date().toISOString() + " " + body) }
+  function hostEvent(body) {
+    var text = "omarchy idle " + new Date().toISOString() + " " + body
+    console.log(Quickshell.env("ORIGIN_LOG_BACKEND") === "journal" ? "\x1b[34m" + text + "\x1b[0m" : text)
+  }
   function driveFlow() {
     var transport = loader.item
     check("initial raw state recorded", transport.rawHistory.length === 1 && transport.rawHistory[0].idle === false)
@@ -140,7 +143,8 @@ ShellRoot {
   Component.onCompleted: {
     hostEvent("lock-system: replay-must-be-ignored")
     loader.setSource(Quickshell.env("RISTRETTO_PLUGIN_DIR") + "/HostOrigin.qml", {
-      originIdleSource:rawIdleStub, barrierTimeoutMs:300, heartbeatMs:100,
+      logBackend: Quickshell.env("ORIGIN_LOG_BACKEND") || "qs",
+      originIdleSource:rawIdleStub, barrierTimeoutMs: Quickshell.env("ORIGIN_LOG_BACKEND") === "journal" ? 3000 : 300, heartbeatMs:100,
       reconnectMs:100, maxReconnectMs:200,
       qsExecutable: scenario === "missing" ? "/nonexistent/ristretto-qs" :
         (scenario === "timeout" ? Quickshell.env("RISTRETTO_PLUGIN_DIR") + "/test/mocks/origin-stall" : "/usr/bin/qs")

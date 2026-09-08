@@ -124,8 +124,11 @@ if (existsSync(pluginService)) {
 }
 if (existsSync(pluginOrigin)) {
   assertPattern(pluginOrigin, /\[root\.qsExecutable, "log", "--pid",[\s\S]*"--follow", "--no-color"\]/,
-    "own PID full replay logging source");
+    "isolated test logging source");
   assertNotContains(pluginOrigin, '"--tail"', "follow replay must retain intermediate live events");
+  assertContains(pluginOrigin, 'property string logBackend: "journal"', "default journal transport");
+  assertContains(pluginOrigin, '"_PID=" + String(root.hostPid)', "journal own PID selection");
+  assertContains(pluginOrigin, '"--no-tail"', "journal full replay before marker");
 }
 
 const qsVersion = spawnSync("qs", ["--version"], { encoding: "utf8" });

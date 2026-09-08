@@ -20,6 +20,7 @@ Item {
   readonly property var lockService: scopedHost ? (hostBridge && hostBridge.available ? hostBridge : null)
     : (shell ? shell.firstPartyServiceFor("omarchy.lock") : null)
   property string bridgeQsExecutable: "/usr/bin/qs"
+  property string bridgeLogBackend: "journal"
   property string bridgeConfigPath: Quickshell.env("HOME") + "/.config/omarchy/shell.json"
   property int _suspendGeneration: 0
   property string _countdownToken: ""
@@ -32,6 +33,7 @@ Item {
       HostBridge {
         active: root.scopedHost
         originIdleSource: root.originIdleSource
+        logBackend: root.bridgeLogBackend
         qsExecutable: root.bridgeQsExecutable
         configPath: root.bridgeConfigPath
       }
@@ -50,6 +52,8 @@ Item {
   }
   function cancelScopedCountdown(reason) {
     if (!root.scopedHost && !root._countdownToken && !root._preflightPending) return
+    if (root._countdownToken || root._preflightPending)
+      log("countdown cancelled: " + reason)
     root._suspendGeneration += 1
     root._countdownToken = ""
     root._preflightPending = false

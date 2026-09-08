@@ -31,7 +31,7 @@ state) for the probe harnesses below; production code never reads them.
 - **Idle origin needs evidence before the lock appears.** On hosts exposing
   live first-party services, the service samples raw idle synchronously at
   the idle announcement and waits for the secure edge. On scoped hosts,
-  `HostOrigin.qml` follows the current Quickshell process's detailed log,
+  `HostOrigin.qml` follows the current Quickshell process's user journal stream,
   and `OriginModel.js` correlates announcement, lock process start, request,
   and secure events within bounded phase deadlines. The secure edge also
   supplies locked evidence when no session-lock rising event is emitted. Raw idle
@@ -42,10 +42,10 @@ state) for the probe harnesses below; production code never reads them.
 - **A fresh log marker establishes continuity.** The follower replays the
   log only until its own fresh nonce, discarding older events. Heartbeats,
   bounded replay/output, clock checks, and reconnect generations invalidate
-  incomplete evidence. Quickshell 0.3.1's `--tail` can discard records in
-  later follower batches, so the command deliberately omits it. Excessive
-  replay fails unavailable. This depends on Quickshell's ordered same-thread
-  QML logging and its detailed-log writer, rather than journal delivery.
+  incomplete evidence. The journal reader selects the current boot and own PID,
+  replays with `--no-tail`, and strips stored ANSI colors after checking byte
+  limits. Excessive replay or delayed journal delivery fails unavailable.
+  Ordered same-thread QML output and journal stream ordering carry the markers.
 - **Suspend uses two fresh barriers.** A saved token must survive a marker,
   fresh idle and lock IPC status, and a second marker after those replies.
   Idle must be loaded and enabled; lock must be secure, session-locked, and
@@ -118,7 +118,7 @@ per-arm generation counter, synthesizes exit code 127 for it.
 | `notify` | `omarchy-notification-send` (`dryRun` only) | 5s |
 | Scoped idle | `qs ipc --pid PID call -- idle status/enable/disable` | 2s |
 | Preflight | `qs ipc --pid PID call -- idle/lock status` | 2.5s per call |
-| Origin | `qs log --pid PID --follow --no-color` | 3s marker deadline |
+| Origin | `journalctl --user --boot --follow --no-tail --output=cat _PID=PID` | 3s marker deadline |
 | Delay writer | `/usr/bin/python3 tools/update-idle.py` with fixed named arguments | 2.5s |
 
 Output is bounded to `outputCapChars` (4096) total across stdout+stderr,

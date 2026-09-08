@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT="$(cd -- "$(dirname -- "$0")/../.." && pwd)"
+if ! command -v systemd-cat >/dev/null || [[ ! -S /run/systemd/journal/stdout ]]; then
+  echo 'SKIP journal origin: local system journal unavailable'
+  exit 0
+fi
+OUT="$(mktemp -d)"
+trap 'rm -rf "$OUT"' EXIT
+identifier="ristretto-journal-probe-$$"
+ORIGIN_SCENARIO=flow ORIGIN_LOG_BACKEND=journal RISTRETTO_PLUGIN_DIR="$ROOT" QT_QPA_PLATFORM=minimal \
+  systemd-cat --identifier="$identifier" timeout --kill-after=2 12 qs -n -p "$ROOT/test/probe/origin-probe.qml" --no-color
+for attempt in {1..20}; do
+  journalctl --user --boot --no-pager --output=cat "SYSLOG_IDENTIFIER=$identifier" > "$OUT/log"
+  if rg -q ORIGIN_RESULT "$OUT/log"; then break; fi
+  sleep 0.1
+done
+python3 - "$OUT/log" <<'PY'
+import json, os, re, sys
+text = open(sys.argv[1]).read()
+assert not re.search(r'TypeError|ReferenceError|ERROR:', text), text
+results = [json.loads(s.split('ORIGIN_RESULT ', 1)[1]) for s in text.splitlines() if 'ORIGIN_RESULT ' in s]
+assert len(results) == 1, text
+r = results[0]
+assert r['scenario'] == 'flow' and r['failures'] == 0 and len(r['checks']) == 10, r
+assert all(c['pass'] for c in r['checks']), r
+p = f"/proc/{r['childPid']}/stat"
+if os.path.exists(p):
+    assert open(p).read().split(') ', 1)[1].split()[0] in ('Z', 'X'), 'journal child survived'
+assert '\x1b[34momarchy idle' in text, 'stored ANSI fixture missing'
+print('PASS real journal origin: 10 assertions, stored ANSI, replay, FIFO barriers, cleanup')
+PY

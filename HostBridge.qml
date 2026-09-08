@@ -6,6 +6,7 @@ Item {
   id: root
   property bool active: false
   property var originIdleSource: null
+  property string logBackend: "journal"
   property string qsExecutable: "/usr/bin/qs"
   property int hostPid: Quickshell.processId
   property string hostInstance: Quickshell.instanceId
@@ -33,7 +34,7 @@ Item {
   function reset(reason) {
     root.state = Origin.createState(root.state.generation + 1, root.state.nextSequence)
     root.cancelled(reason)
-    root.finishPreflight(false)
+    root.failPreflight("reset")
   }
   function ingest(line) {
     var event = Origin.parseHostLine(line)
@@ -58,11 +59,24 @@ Item {
     preflightDeadline.stop()
     if (callback) callback(success)
   }
+  function logPreflightFailure(reason) {
+    console.log("ristretto: suspend preflight failed: " + reason)
+  }
+  function failPreflight(reason) {
+    if (!root._preflightCallback) return
+    root.logPreflightFailure(reason)
+    root.finishPreflight(false)
+  }
+  function rejectPreflight(reason, callback) {
+    root.logPreflightFailure("initial " + reason)
+    callback(false)
+    return false
+  }
   function preflight(candidate, callback) {
-    if (root._preflightCallback || idleCheck.busy || lockCheck.busy || !candidate || candidate !== root.token) {
-      callback(false)
-      return false
-    }
+    if (root._preflightCallback || idleCheck.busy || lockCheck.busy)
+      return root.rejectPreflight("busy", callback)
+    if (!candidate || candidate !== root.token)
+      return root.rejectPreflight("token", callback)
     root._preflightCallback = callback
     root._preflightToken = candidate
     root._preflightGeneration = origin.transportGeneration
@@ -70,8 +84,9 @@ Item {
     preflightDeadline.restart()
     origin.requestBarrier(function(ok) {
       if (serial !== root._preflightSerial) return
-      if (!ok || !root.matchesToken()) { root.finishPreflight(false); return }
-      if (!idleCheck.run(root.statusCommand("idle"))) root.finishPreflight(false)
+      if (!ok) { root.failPreflight("first barrier"); return }
+      if (!root.matchesToken()) { root.failPreflight("first barrier token"); return }
+      if (!idleCheck.run(root.statusCommand("idle"))) root.failPreflight("idle query failure")
     })
     return true
   }
@@ -128,6 +143,7 @@ Item {
     id: origin
     active: root.active
     originIdleSource: root.originIdleSource
+    logBackend: root.logBackend
     hostPid: root.hostPid
     hostInstance: root.hostInstance
     qsExecutable: root.qsExecutable
@@ -141,27 +157,33 @@ Item {
     id: idleCheck
     onFinished: function(success, output, error) {
       if (!root._preflightCallback) return
-      var status = success ? root.parseStatus(output) : null
-      if (!root.matchesToken() || !status || status.stayAwakeStateLoaded !== true
+      if (!success) { root.failPreflight("idle query failure"); return }
+      if (!root.matchesToken()) { root.failPreflight("idle query token"); return }
+      var status = root.parseStatus(output)
+      if (!status || status.stayAwakeStateLoaded !== true
           || status.stayAwake !== false || status.enabled !== true) {
-        root.finishPreflight(false); return
+        root.failPreflight("idle query invalidstate"); return
       }
-      if (!lockCheck.run(root.statusCommand("lock"))) root.finishPreflight(false)
+      if (!lockCheck.run(root.statusCommand("lock"))) root.failPreflight("lock query failure")
     }
   }
   CommandJob {
     id: lockCheck
     onFinished: function(success, output, error) {
       if (!root._preflightCallback) return
-      var status = success ? root.parseStatus(output) : null
-      if (!root.matchesToken() || !status || status.locked !== true || status.secure !== true
+      if (!success) { root.failPreflight("lock query failure"); return }
+      if (!root.matchesToken()) { root.failPreflight("lock query token"); return }
+      var status = root.parseStatus(output)
+      if (!status || status.locked !== true || status.secure !== true
           || status.sessionLocked !== true || status.pending !== false) {
-        root.finishPreflight(false); return
+        root.failPreflight("lock query invalidstate"); return
       }
       var serial = root._preflightSerial
       origin.requestBarrier(function(ok) {
         if (serial !== root._preflightSerial) return
-        root.finishPreflight(ok && root.matchesToken())
+        if (!ok) { root.failPreflight("second barrier"); return }
+        if (!root.matchesToken()) { root.failPreflight("second barrier token"); return }
+        root.finishPreflight(true)
       })
     }
   }
@@ -191,5 +213,5 @@ Item {
       root.delayWriteFinished(false)
     }
   }
-  Timer { id: preflightDeadline; interval: 10000; onTriggered: root.finishPreflight(false) }
+  Timer { id: preflightDeadline; interval: 10000; onTriggered: root.failPreflight("timeout") }
 }

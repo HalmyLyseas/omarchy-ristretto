@@ -7,7 +7,9 @@ Item {
 
   property bool active: false
   property var originIdleSource: null
+  property string logBackend: "journal"
   property string qsExecutable: "/usr/bin/qs"
+  property string journalExecutable: "/usr/bin/journalctl"
   property int hostPid: Quickshell.processId
   property string hostInstance: Quickshell.instanceId
   property int barrierTimeoutMs: 3000
@@ -132,6 +134,7 @@ Item {
       if (root._windowBytes > root.windowCap) { root.fail("log rate limit"); return }
     }
     if (errorStream) { root.fail("log reader error: " + text.slice(0, 160)); return }
+    text = text.replace(/\x1b\[[0-9;]*m/g, "")
     var marker = text.match(/^\s*(?:DEBUG|INFO) qml: RISTRETTO_ORIGIN_MARKER (\S+)$/)
     if (marker && marker[1] === root._nonce) {
       if (root.clockSample()) root.finishMarker()
@@ -150,6 +153,7 @@ Item {
 
   function fail(reason) {
     if (root._stopping) return
+    console.log("ristretto origin observation failed: " + reason)
     root._stopping = true
     root.invalidate(reason)
     root.flushCallbacks()
@@ -195,7 +199,12 @@ Item {
     root._lastError = ""
     launchDeadline.interval = root.barrierTimeoutMs
     launchDeadline.restart()
-    reader.command = [root.qsExecutable, "log", "--pid", String(root.hostPid), "--follow", "--no-color"]
+    if (root.logBackend === "qs") {
+      reader.command = [root.qsExecutable, "log", "--pid", String(root.hostPid), "--follow", "--no-color"]
+    } else {
+      reader.command = [root.journalExecutable, "--user", "--boot", "--no-pager", "--output=cat",
+        "--no-tail", "--follow", "_PID=" + String(root.hostPid)]
+    }
     reader.running = true
   }
 
@@ -212,7 +221,9 @@ Item {
   }
   onHostPidChanged: root.reconfigure()
   onHostInstanceChanged: root.reconfigure()
+  onLogBackendChanged: root.reconfigure()
   onQsExecutableChanged: root.reconfigure()
+  onJournalExecutableChanged: root.reconfigure()
   onOriginIdleSourceChanged: {
     root._history = []
     if (root._started) { root.invalidated("raw idle source replaced"); root.noteIdle() }
