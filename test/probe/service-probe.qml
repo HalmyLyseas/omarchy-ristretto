@@ -16,6 +16,7 @@ ShellRoot {
   property var sleepNormChecks: []
   property var facadeChecks: ({})
   property bool reconcileMidState: false
+  property var stayAwakeClearChecks: ({})
 
   property var shellConfigObj: ({
     bar: { layout: { left: [], center: [], right: [{ id: "halmylyseas.ristretto" }] } },
@@ -327,6 +328,7 @@ ShellRoot {
     if (scenario === "unlock-mid-countdown") return scenarioUnlockMidCountdown()
     if (scenario === "delay-change-mid-countdown") return scenarioDelayChangeMidCountdown()
     if (scenario === "stayawake-settle-and-fire") return scenarioStayAwakeSettleAndFire()
+    if (scenario === "stayawake-clears-latch") return scenarioStayAwakeClearsLatch()
     if (scenario === "idle-service-lost") return scenarioIdleServiceLost()
     if (scenario === "sleep-normalize") return scenarioSleepNormalize()
     if (scenario === "string-entry-warning") return scenarioStringEntryWarning()
@@ -494,6 +496,30 @@ ShellRoot {
             // would have gotten there.
             service.suspend()
             after(300, finishNow)
+          })
+        })
+      })
+    })
+  }
+
+  function scenarioStayAwakeClearsLatch() {
+    setConfig({ sleepAfterIdleLock: 5 })
+    after(50, function () {
+      driveSecureIdleLock(function () {
+        after(300, function () {
+          idleStub.stayAwake = true
+          probeRoot.stayAwakeClearChecks = {
+            pendingAfterEnable: service.idleLockPending,
+            announcedAfterEnable: service.idleLockAnnounced,
+            originAfterEnable: service.originIdleAtAnnounce,
+            settleRunningAfterEnable: service._debugOriginSettleRunning,
+            suspendRunningAfterEnable: service._debugSuspendTimerRunning
+          }
+          idleStub.stayAwake = false
+          lockStub.pendingSessionLock = true
+          after(100, function () {
+            lockStub.pendingSessionLock = false
+            after(700, finishNow)
           })
         })
       })
@@ -674,7 +700,8 @@ ShellRoot {
       writeReconciledCount: service._debugWriteReconciledCount,
       writeFailedStartCount: service._writeFailedStartCount,
       armedAtMs: service._debugArmedAtMs,
-      facadeChecks: probeRoot.facadeChecks
+      facadeChecks: probeRoot.facadeChecks,
+      stayAwakeClearChecks: probeRoot.stayAwakeClearChecks
     }
     console.log("PROBE_RESULT " + JSON.stringify(summary))
     Qt.quit()

@@ -354,9 +354,33 @@ report_json_line stayawake-settle-and-fire "$json"
 }
 check_log_contains "$OUT_DIR/stayawake-settle-and-fire.log" "stay-awake enabled -- countdown cancelled" \
   "stayawake-settle-and-fire: settle-time cancellation logged"
-check_log_contains "$OUT_DIR/stayawake-settle-and-fire.log" "fired but stay-awake is on -- ignoring" \
-  "stayawake-settle-and-fire: fire-time refusal logged"
+[[ -n "$json" && "$(field "$json" idleLockPending)" == "false" ]] \
+  && ok "stayawake-settle-and-fire: idle latch cleared" \
+  || not_ok "stayawake-settle-and-fire: idle latch cleared"
 run_common_checks stayawake-settle-and-fire
+
+echo
+echo "== 10b: stay-awake clears legacy latch and secure re-edge cannot rearm =="
+setup_scenario_env stayawake-clears-latch yes
+run_scenario stayawake-clears-latch
+json="$(get_json stayawake-clears-latch)"
+report_json_line stayawake-clears-latch "$json"
+[[ -n "$json" ]] && {
+  [[ "$(field "$json" stayAwakeClearChecks.pendingAfterEnable)" == "false" ]] && ok "stayawake-clears-latch: idle latch cleared immediately" \
+    || not_ok "stayawake-clears-latch: idle latch cleared immediately"
+  [[ "$(field "$json" stayAwakeClearChecks.announcedAfterEnable)" == "false" ]] && ok "stayawake-clears-latch: announcement latch cleared" \
+    || not_ok "stayawake-clears-latch: announcement latch cleared"
+  [[ "$(field "$json" stayAwakeClearChecks.originAfterEnable)" == "false" ]] && ok "stayawake-clears-latch: origin verdict cleared" \
+    || not_ok "stayawake-clears-latch: origin verdict cleared"
+  [[ "$(field "$json" stayAwakeClearChecks.settleRunningAfterEnable)" == "false" && "$(field "$json" stayAwakeClearChecks.suspendRunningAfterEnable)" == "false" ]] && ok "stayawake-clears-latch: timers stopped" \
+    || not_ok "stayawake-clears-latch: timers stopped"
+  [[ "$(field "$json" armedAtMs)" == "0" ]] && ok "stayawake-clears-latch: synthetic secure re-edge never armed" \
+    || not_ok "stayawake-clears-latch: synthetic secure re-edge never armed"
+  n="$(mock_call_count "$OUT_DIR/stayawake-clears-latch.mock.log" "ARGV: systemctl suspend")"
+  [[ "$n" == "0" ]] && ok "stayawake-clears-latch: systemctl never called" \
+    || not_ok "stayawake-clears-latch: systemctl never called (got $n)"
+}
+run_common_checks stayawake-clears-latch
 
 echo
 echo "== 11: idle service removed (stub returns null) mid-countdown -> cancelled (A5) =="

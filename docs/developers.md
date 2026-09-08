@@ -194,7 +194,9 @@ limits, watchdogs, callbacks, origin transport, and scoped host behavior.
 Host contracts inspect the installed source and CLI wording; they do not
 establish runtime authorization merely because a method name exists.
 
-All QML files, including untracked development files, are linted locally.
+Local and remote CI share `bash test/lint-qml`, which resolves absolute source
+paths and fails on nonzero linter exits. All QML files, including untracked
+development files, are linted locally.
 Node tests strip `.pragma library` before evaluating pure QML JavaScript.
 The idle writer tests exercise invalid targets, preserved settings, atomic
 replacement, conflict retries, locking, and failure cleanup in temporary

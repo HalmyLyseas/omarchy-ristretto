@@ -7,6 +7,11 @@ marketplace release; the manifest remains at the last released version.
 
 ### Fixed
 
+- Preserve current saved sibling settings when a stale widget edits the
+  suspend delay, including the dry-run setting.
+- Clear legacy idle-lock eligibility immediately when stay-awake is enabled.
+- Make local QML lint independent of the caller's directory and reject every
+  nonzero linter exit; share the same wrapper with CI.
 - Restore idle controls and suspend on Omarchy 4.0.3 with capability-scoped
   plugin APIs, without modifying the installed host.
 - Apply widget settings to the running service from the saved own entry.

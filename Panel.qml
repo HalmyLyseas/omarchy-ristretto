@@ -181,9 +181,14 @@ Panel {
   function commitSleep(seconds) {
     var host = root.shell
     if (!host || typeof host.updateEntryInline !== "function") return
-    if (root.scopedHost) root.ristrettoService.cancelScopedCountdown("sleep delay change requested")
+    var current = root.settings
+    if (root.scopedHost) {
+      current = root.ristrettoService ? root.ristrettoService.settingsEntry : null
+      if (!current || typeof current !== "object" || Array.isArray(current)) return
+      root.ristrettoService.cancelScopedCountdown("sleep delay change requested")
+    }
     host.updateEntryInline(root.moduleName,
-                           Model.mergedSettings(root.settings, "sleepAfterIdleLock", seconds))
+                           Model.mergedSettings(current, "sleepAfterIdleLock", seconds))
   }
 
   onOpenedChanged: if (opened) {

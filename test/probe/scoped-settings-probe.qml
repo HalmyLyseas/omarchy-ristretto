@@ -34,8 +34,9 @@ ShellRoot {
       item._firstPartyServiceLookup = function(id) { return null }
       item._updateSettings = function(id, settings) {
         if (id !== "halmylyseas.ristretto") return false
-        root.entry = ({id: id, sleepAfterIdleLock: settings.sleepAfterIdleLock,
-                       dryRun: settings.dryRun, sibling: settings.sibling})
+        var next = ({id: id})
+        for (var key in settings) if (key !== "id") next[key] = settings[key]
+        root.entry = next
         saveEntry(root.entry)
         if (root.widget) root.widget.settings = root.entry
         return true
@@ -114,9 +115,13 @@ ShellRoot {
     until(function() { return service.sleepSeconds === 300 }, function() {
       check("service follows persisted settings", p.sleepSeconds === 300 && service.dryRun === true)
       check("facade snapshot remains stale", shellApi.barConfig.layout.right[0].sleepAfterIdleLock === 60)
-      saveEntry({id:"halmylyseas.ristretto",sleepAfterIdleLock:180,dryRun:false,sibling:"kept"})
+      saveEntry({id:"halmylyseas.ristretto",sleepAfterIdleLock:180,dryRun:false,sibling:"newer",newField:"preserved"})
       until(function() { return service.sleepSeconds === 180 && !service.dryRun }, function() {
         check("panel displays active external settings", p.sleepSeconds === 180 && !p.dryRun && root.entry.sleepAfterIdleLock === 300)
+        p.commitSleep(240)
+        check("fresh settings survive next widget edit",
+              root.entry.sleepAfterIdleLock === 240 && root.entry.dryRun === false
+              && root.entry.sibling === "newer" && root.entry.newField === "preserved")
         var component = Qt.createComponent("file://" + root.pluginDir + "/BarWidget.qml")
         secondWidget = component.createObject(root, {bar:barStub,settings:{sleepAfterIdleLock:600,dryRun:true}})
         check("stale second monitor cannot override settings", service.sleepSeconds === 180 && !service.dryRun)
@@ -127,11 +132,13 @@ ShellRoot {
         Qt.callLater(function() {
           check("panel unavailable after destroy", p.suspendAvailable === false && p.heroStatus.indexOf("unavailable") >= 0)
           makeService()
-          until(function() { return service.sleepSeconds === 180 }, function() {
-            check("panel follows recreated service", p.ristrettoService === service && p.sleepSeconds === 180 && !p.dryRun)
+          until(function() { return service.sleepSeconds === 240 }, function() {
+            check("panel follows recreated service", p.ristrettoService === service && p.sleepSeconds === 240 && !p.dryRun)
             configWriter.setText("invalid JSON")
             until(function() { return service.sleepSeconds === -1 }, function() {
               check("invalid file clears stale settings", !service.dryRun && !!service.settingsDiagnostic && p.sleepSeconds === -1)
+              p.commitSleep(600)
+              check("invalid current entry rejects widget write", root.entry.sleepAfterIdleLock === 240)
               saveEntry(null)
               until(function() { return service.settingsDiagnostic === "missing own entry" }, function() {
                 check("missing entry fails safe", service.sleepSeconds === -1)

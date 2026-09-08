@@ -17,7 +17,7 @@ for mode in eligible omitted-lock-state manual activity ambiguous unlock-pending
     RISTRETTO_PLUGIN_DIR="$ROOT" XDG_RUNTIME_DIR="$OUT/runtime" QT_QPA_PLATFORM=minimal \
     timeout --kill-after=2 15 qs -n -p "$ROOT/test/probe/host-bridge-probe.qml" --no-color > "$log" 2>&1
   code=$?
-  if [[ "$code" != 0 ]] || rg -q 'TypeError|ReferenceError|ERROR:|Binding loop' "$log"; then
+  if [[ "$code" != 0 ]] || grep -Eq 'TypeError|ReferenceError|ERROR:|Binding loop' "$log"; then
     cat "$log"
     failures=$((failures + 1))
     continue

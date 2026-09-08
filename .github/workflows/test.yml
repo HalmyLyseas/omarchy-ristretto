@@ -65,22 +65,7 @@ jobs:
           ls -la /usr/bin/omarchy-plugin-validate /usr/share/omarchy/shell/Ui/Panel.qml
 
       - name: qmllint every .qml file (0 errors, warnings allowed)
-        run: |
-          mkdir -p /tmp/qmlroot
-          ln -sfn /usr/share/omarchy/shell /tmp/qmlroot/qs
-          status=0
-          count=0
-          while IFS= read -r -d '' f; do
-            count=$((count + 1))
-            out="$(/usr/lib/qt6/bin/qmllint -I /tmp/qmlroot -I /usr/share/omarchy/shell "$f" 2>&1)"
-            if grep -q ':[0-9]*:[0-9]*: Error' <<<"$out"; then
-              echo "$out"
-              status=1
-            fi
-          done < <(git ls-files -z '*.qml')
-          echo "qmllint checked $count files"
-          [[ $count -ge 5 ]] || { echo "expected at least 5 .qml files, linted $count" >&2; exit 1; }
-          exit $status
+        run: bash test/lint-qml
 
       - name: omarchy plugin validate (manifest schema, entry points, no symlinks)
         run: /usr/bin/omarchy-plugin-validate .

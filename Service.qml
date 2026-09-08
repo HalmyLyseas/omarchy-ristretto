@@ -1127,6 +1127,10 @@ Item {
       var wasCounting = suspendTimer.running || originSettle.running
       if (suspendTimer.running) suspendTimer.stop()
       if (originSettle.running) originSettle.stop()
+      root.idleLockPending = false
+      root.idleLockAnnounced = false
+      root.originIdleAtAnnounce = false
+      latchExpiry.stop()
       if (wasCounting) log("stay-awake enabled -- countdown cancelled")
     }
   }

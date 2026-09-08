@@ -12,7 +12,7 @@ ORIGIN_SCENARIO=flow ORIGIN_LOG_BACKEND=journal RISTRETTO_PLUGIN_DIR="$ROOT" QT_
   systemd-cat --identifier="$identifier" timeout --kill-after=2 12 qs -n -p "$ROOT/test/probe/origin-probe.qml" --no-color
 for attempt in {1..20}; do
   journalctl --user --boot --no-pager --output=cat "SYSLOG_IDENTIFIER=$identifier" > "$OUT/log"
-  if rg -q ORIGIN_RESULT "$OUT/log"; then break; fi
+  if grep -Eq ORIGIN_RESULT "$OUT/log"; then break; fi
   sleep 0.1
 done
 python3 - "$OUT/log" <<'PY'
