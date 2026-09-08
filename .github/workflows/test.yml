@@ -9,6 +9,9 @@ jobs:
   test:
     runs-on: ubuntu-latest
     container: archlinux:latest
+    defaults:
+      run:
+        shell: bash
     steps:
       # archlinux:latest ships pacman but not git, so install it before
       # checkout can run. Full sync+upgrade, never a bare `-Sy` -- a
@@ -55,7 +58,7 @@ jobs:
           # `pacman -S omarchy`.
           pacman -Swdd --noconfirm omarchy
           shopt -s nullglob
-          pkgs=(/var/cache/pacman/pkg/omarchy-[0-9]*-any.pkg.tar.zst)
+          pkgs=(/var/cache/pacman/pkg/omarchy-[0-9]*-*.pkg.tar.zst)
           if [[ ${#pkgs[@]} -ne 1 ]]; then
             echo "expected exactly one omarchy package archive, found ${#pkgs[@]}: ${pkgs[*]}" >&2
             exit 1
