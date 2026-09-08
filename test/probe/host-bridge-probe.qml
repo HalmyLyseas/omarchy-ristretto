@@ -21,7 +21,7 @@ ShellRoot {
     event("idle", "lock-system: lock-timeout")
     event("idle", "process-start: lock omarchy-system-lock")
     event("lock", "lock-requested")
-    event("lock", "session-locked=true")
+    if (mode !== "omitted-lock-state") event("lock", "session-locked=true")
     event("lock", "secure=true")
   }
   function finish() {

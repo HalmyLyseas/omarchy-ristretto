@@ -33,7 +33,8 @@ state) for the probe harnesses below; production code never reads them.
   the idle announcement and waits for the secure edge. On scoped hosts,
   `HostOrigin.qml` follows the current Quickshell process's detailed log,
   and `OriginModel.js` correlates announcement, lock process start, request,
-  session lock, and secure events within bounded phase deadlines. Raw idle
+  and secure events within bounded phase deadlines. The secure edge also
+  supplies locked evidence when no session-lock rising event is emitted. Raw idle
   transitions carry wall and monotonic timestamps. The state strictly
   before the source announcement decides origin; equal-millisecond samples
   are ambiguous and rejected. Sampling at log delivery would be wrong:

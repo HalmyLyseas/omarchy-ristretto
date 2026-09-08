@@ -169,8 +169,11 @@ function applyEvent(state, event, options) {
     next.secure = event.value
     if (event.value === false) return clearCandidate(next, "insecure")
     candidate = next.candidate
-    if (candidate && candidate.phase === "requested" && next.locked &&
+    if (candidate && candidate.phase === "requested" &&
         within(time, candidate.requestedAt, config.phaseTimeoutMs) && !next.stayAwake) {
+      // Some 4.0.3 sessions do not emit session-locked=true. The secure edge
+      // is authoritative only after the complete origin request chain.
+      next.locked = true
       candidate.phase = "secure"; candidate.securedAt = time; next.candidate = candidate
       next.eligible = true; next.token = "g" + next.generation + "-" + candidate.sequence
     }

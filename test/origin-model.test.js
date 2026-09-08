@@ -133,6 +133,19 @@ test('parsed host trace reduces to an eligible idle origin', () => {
   assert.equal(Model.isEligible(s), true)
 })
 
+test('secure edge supplies locked evidence when host omits session-locked event', () => {
+  let s = Model.recordIdle(Model.createState(), { wallMs: 1000, monoMs: 1000, idle: true }, cfg)
+  const lines = [
+    ' DEBUG qml: omarchy idle 1970-01-01T00:00:01.100Z lock-system: lock-timeout',
+    ' DEBUG qml: omarchy idle 1970-01-01T00:00:01.110Z process-start: lock',
+    ' DEBUG qml: omarchy lock 1970-01-01T00:00:01.120Z lock-requested',
+    ' DEBUG qml: omarchy lock 1970-01-01T00:00:01.122Z secure=true'
+  ]
+  for (const line of lines) s = Model.applyEvent(s, Model.parseHostLine(line), cfg)
+  assert.equal(s.locked, true)
+  assert.equal(Model.isEligible(s), true)
+})
+
 test('typed parser rejects screensaver spawn and handles false lock state', () => {
   assert.equal(Model.parseHostLine(' DEBUG qml: omarchy idle 1970-01-01T00:00:01.110Z process-start: screensaver'), null)
   const unlocked = Model.parseHostLine(' DEBUG qml: omarchy lock 1970-01-01T00:00:01.121Z session-locked=false')

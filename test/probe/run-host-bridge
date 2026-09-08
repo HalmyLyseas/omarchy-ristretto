@@ -5,7 +5,7 @@ OUT="$(mktemp -d /tmp/ristretto-bridge.XXXXXX)"
 trap 'rm -rf "$OUT"' EXIT
 mkdir -m 700 "$OUT/runtime"
 failures=0
-for mode in eligible manual activity ambiguous unlock-pending writer; do
+for mode in eligible omitted-lock-state manual activity ambiguous unlock-pending writer; do
   log="$OUT/$mode.log"
   mock="$OUT/$mode.mock"
   config=""
@@ -36,7 +36,7 @@ if sys.argv[3] == 'writer':
 calls = [json.loads(s) for s in open(sys.argv[2])]
 assert any(c['args'][0] == 'log' for c in calls)
 assert any(c['args'][-2:] == ['idle', 'status'] for c in calls)
-if sys.argv[3] in ('eligible','unlock-pending'):
+if sys.argv[3] in ('eligible','omitted-lock-state','unlock-pending'):
     assert any(c['args'][-2:] == ['lock','status'] for c in calls), calls
 for c in calls:
     path = f"/proc/{c['pid']}/stat"
