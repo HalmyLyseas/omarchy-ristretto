@@ -3,7 +3,7 @@
 Notable user-facing changes, newest first. Marketplace verification applies
 to an exact commit and is tracked separately from the version.
 
-## Unreleased
+## 1.2.1-rc — 2026-09-12
 
 ### Fixed
 

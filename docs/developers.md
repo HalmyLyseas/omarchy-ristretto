@@ -72,8 +72,9 @@ state) for the probe harnesses below; production code never reads them.
   After a slider click, the panel retains that requested index while the
   host-derived value catches up; without this short-lived intent,
   `PanelSlider` resets to the stale bound value on release and then animates
-  forward again. Host confirmation clears the intent, while failed or lost
-  writes fall back to host truth after a bounded timeout.
+  forward again. Host confirmation clears the intent. Scoped writes retain it
+  through `HostBridge` verification and clear it on failure or bridge loss;
+  legacy writes fall back to host truth after a bounded timeout.
   The scoped writer accepts a version-1 regular owned JSON file, bounds its
   size, rejects symlinks, and merges the requested stop into the latest
   config. It preserves unrelated values and a compliant partner exactly.
@@ -217,13 +218,18 @@ files only.
 The marketplace lists an exact validated commit, not a branch. To ship a
 new version once the plugin is listed:
 
-1. Bump `version` in `manifest.json`, commit, and push `master`.
-2. Open a **Plugin verification** issue on
+1. For a release candidate, create `release/<version>` from the current release,
+   bump `version` in `manifest.json`, move the changelog entry out of
+   `Unreleased`, and push the branch. Confirm its GitHub Actions run before
+   promoting it; do not submit an RC to the marketplace.
+2. For the final release, remove the prerelease suffix, merge the tested commit
+   to `master`, and push `master`.
+3. Open a **Plugin verification** issue on
    `HANCORE-linux/omarchy-plugin-marketplace` (template
    `verify-plugin.yml`), choose *newer upstream commit*, and give the
    plugin ID, the repository root URL, and the full 40-character SHA of
    the pushed HEAD.
-3. Validation and the security baseline run against that exact commit; a
+4. Validation and the security baseline run against that exact commit; a
    maintainer's `approved-and-verified` replaces the listed snapshot.
 
 Until that lands, the listing shows *Update unverified* against a newer

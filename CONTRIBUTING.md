@@ -90,6 +90,7 @@ real widget, compare disk and service values, and restore the starting settings.
 
 ## Releasing
 
-Bump `manifest.json`'s `version`, commit, push, and open a marketplace
-verification issue with the exact 40-character SHA. See
-`docs/developers.md` "Releasing".
+For a release candidate, bump `manifest.json`'s version, promote the changelog
+entry, and push a `release/<version>` branch for GitHub Actions validation.
+Only a final version merged to `master` proceeds to marketplace verification
+with its exact 40-character SHA. See `docs/developers.md` "Releasing".
