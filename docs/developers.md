@@ -69,6 +69,11 @@ state) for the probe harnesses below; production code never reads them.
 - **Displayed delays come from the host.** Legacy service properties or
   scoped `idle status` IPC provide the effective values. Unknown state is
   shown as unavailable, and shared controls are disabled until it is current.
+  After a slider click, the panel retains that requested index while the
+  host-derived value catches up; without this short-lived intent,
+  `PanelSlider` resets to the stale bound value on release and then animates
+  forward again. Host confirmation clears the intent, while failed or lost
+  writes fall back to host truth after a bounded timeout.
   The scoped writer accepts a version-1 regular owned JSON file, bounds its
   size, rejects symlinks, and merges the requested stop into the latest
   config. It preserves unrelated values and a compliant partner exactly.

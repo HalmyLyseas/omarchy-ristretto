@@ -3,6 +3,13 @@
 Notable user-facing changes, newest first. Marketplace verification applies
 to an exact commit and is tracked separately from the version.
 
+## Unreleased
+
+### Fixed
+
+- Keep delay sliders on a clicked target while the host confirms the new
+  screensaver or lock value, preventing a visible snap-back and return.
+
 ## 1.2.0 — 2026-09-09
 
 ### Fixed

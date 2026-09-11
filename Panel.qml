@@ -59,6 +59,56 @@ Panel {
   readonly property bool delayWritePending: bridge ? bridge.writePending : false
   readonly property bool stayAwake: idleService ? idleService.stayAwake === true : false
 
+  // Retain a clicked delay index while its host-derived value catches up;
+  // PanelSlider otherwise resets liveValue to the stale value after release.
+  // Legacy writes time out; scoped writes follow HostBridge verification.
+  property int pendingScreensaverIndex: -1
+  property int pendingLockIndex: -1
+  property int sliderIntentTimeoutMs: 5000
+  readonly property int displayedScreensaverIndex: pendingScreensaverIndex >= 0
+    ? pendingScreensaverIndex : screensaverIndex
+  readonly property int displayedLockIndex: pendingLockIndex >= 0
+    ? pendingLockIndex : lockIndex
+
+  onScreensaverIndexChanged: if (pendingScreensaverIndex === screensaverIndex) {
+    pendingScreensaverIndex = -1
+    screensaverIntentTimeout.stop()
+  }
+  onLockIndexChanged: if (pendingLockIndex === lockIndex) {
+    pendingLockIndex = -1
+    lockIntentTimeout.stop()
+  }
+  onBridgeChanged: {
+    pendingScreensaverIndex = -1
+    pendingLockIndex = -1
+    screensaverIntentTimeout.stop()
+    lockIntentTimeout.stop()
+  }
+
+  Timer {
+    id: screensaverIntentTimeout
+    interval: root.sliderIntentTimeoutMs
+    repeat: false
+    onTriggered: root.pendingScreensaverIndex = -1
+  }
+  Timer {
+    id: lockIntentTimeout
+    interval: root.sliderIntentTimeoutMs
+    repeat: false
+    onTriggered: root.pendingLockIndex = -1
+  }
+
+  Connections {
+    target: root.bridge
+    function onDelayWriteFinished(success) {
+      if (success) return
+      root.pendingScreensaverIndex = -1
+      root.pendingLockIndex = -1
+      screensaverIntentTimeout.stop()
+      lockIntentTimeout.stop()
+    }
+  }
+
   // The screensaver flag is owned by this plugin's own service -- one
   // watcher machine-wide, panels bind. Reading it as "enabled" keeps the
   // switch's sense the same as the label.
@@ -125,7 +175,7 @@ Panel {
   // reactively, so the write re-arms the cycle with no restart.
   function writeIdle(patch) {
     var host = root.shell
-    if (!host || typeof host.mutateShellConfig !== "function") return
+    if (!host || typeof host.mutateShellConfig !== "function") return false
     host.mutateShellConfig(function(config) {
       // An array is typeof "object" too, but a named property set on one
       // (config.idle.screensaver = ...) vanishes under JSON serialization.
@@ -133,6 +183,7 @@ Panel {
         config.idle = ({})
       for (var key in patch) config.idle[key] = patch[key]
     })
+    return true
   }
 
   // The strict clamp is checked against the ACTUAL stored partner value,
@@ -140,22 +191,48 @@ Panel {
   // one mutation either way, so shell.json never briefly disagrees.
   function commitScreensaver(sliderValue) {
     if (!root.idleAvailable || root.delayWritePending) return
-    var ss = Model.SCREENSAVER_STOPS[Math.round(sliderValue)]
-    if (root.scopedHost) { ristrettoService.writeIdleDelay("screensaver", ss * 60); return }
+    var targetIndex = Math.round(sliderValue)
+    var ss = Model.SCREENSAVER_STOPS[targetIndex]
+    root.pendingScreensaverIndex = targetIndex === root.screensaverIndex ? -1 : targetIndex
+    if (root.pendingScreensaverIndex >= 0 && !root.scopedHost) screensaverIntentTimeout.restart()
+    else screensaverIntentTimeout.stop()
+    if (root.scopedHost) {
+      if (!ristrettoService.writeIdleDelay("screensaver", ss * 60)) {
+        root.pendingScreensaverIndex = -1
+        screensaverIntentTimeout.stop()
+      }
+      return
+    }
     var patch = ({ screensaver: ss * 60 })
     if (root.lockSeconds <= ss * 60)
       patch.lock = Model.LOCK_STOPS[Model.lockIndexAbove(ss, root.lockIndex)] * 60
-    writeIdle(patch)
+    if (!writeIdle(patch)) {
+      root.pendingScreensaverIndex = -1
+      screensaverIntentTimeout.stop()
+    }
   }
 
   function commitLock(sliderValue) {
     if (!root.idleAvailable || root.delayWritePending) return
-    var lk = Model.LOCK_STOPS[Math.round(sliderValue)]
-    if (root.scopedHost) { ristrettoService.writeIdleDelay("lock", lk * 60); return }
+    var targetIndex = Math.round(sliderValue)
+    var lk = Model.LOCK_STOPS[targetIndex]
+    root.pendingLockIndex = targetIndex === root.lockIndex ? -1 : targetIndex
+    if (root.pendingLockIndex >= 0 && !root.scopedHost) lockIntentTimeout.restart()
+    else lockIntentTimeout.stop()
+    if (root.scopedHost) {
+      if (!ristrettoService.writeIdleDelay("lock", lk * 60)) {
+        root.pendingLockIndex = -1
+        lockIntentTimeout.stop()
+      }
+      return
+    }
     var patch = ({ lock: lk * 60 })
     if (root.screensaverSeconds >= lk * 60)
       patch.screensaver = Model.SCREENSAVER_STOPS[Model.screensaverIndexBelow(lk, root.screensaverIndex)] * 60
-    writeIdle(patch)
+    if (!writeIdle(patch)) {
+      root.pendingLockIndex = -1
+      lockIntentTimeout.stop()
+    }
   }
 
   // Hands the decision to the service rather than touching state directly.
@@ -198,6 +275,8 @@ Panel {
 
   // Debug-only, read by the UI probe harness -- production never reads this.
   readonly property var _debugContentItem: column
+  readonly property var _debugScreensaverSlider: screensaverSlider
+  readonly property var _debugLockSlider: lockSlider
 
   // ------------------------------------------------------------------ UI
 
@@ -319,7 +398,7 @@ Panel {
 
           Text {
             text: !root.idleAvailable ? "unavailable" : Model.minutesLabel(Model.SCREENSAVER_STOPS[
-              screensaverSlider.dragging ? Math.round(screensaverSlider.liveValue) : root.screensaverIndex])
+              screensaverSlider.dragging ? Math.round(screensaverSlider.liveValue) : root.displayedScreensaverIndex])
             textFormat: Text.PlainText
             color: root.dim
             font.family: root.fontFamily
@@ -351,7 +430,7 @@ Panel {
             step: 1
             integer: true
             tickCount: Model.SCREENSAVER_STOPS.length
-            value: root.screensaverIndex
+            value: root.displayedScreensaverIndex
             onReleased: function(v) { root.commitScreensaver(v) }
           }
 
@@ -383,7 +462,7 @@ Panel {
           Text {
             id: lockValue
             text: !root.idleAvailable ? "unavailable" : Model.minutesLabel(Model.LOCK_STOPS[
-              lockSlider.dragging ? Math.round(lockSlider.liveValue) : root.lockIndex])
+              lockSlider.dragging ? Math.round(lockSlider.liveValue) : root.displayedLockIndex])
             textFormat: Text.PlainText
             color: root.dim
             font.family: root.fontFamily
@@ -414,7 +493,7 @@ Panel {
             step: 1
             integer: true
             tickCount: Model.LOCK_STOPS.length
-            value: root.lockIndex
+            value: root.displayedLockIndex
             onReleased: function(v) { root.commitLock(v) }
           }
 

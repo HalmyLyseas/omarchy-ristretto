@@ -219,6 +219,26 @@ report_json_line slider-commit "$json"
 run_common_checks slider-commit
 
 echo
+echo "== 2b: click release holds its target while host confirmation catches up =="
+setup_scenario_env slider-click-settle
+run_scenario slider-click-settle slider-click-settle
+json="$(get_json slider-click-settle)"
+report_json_line slider-click-settle "$json"
+[[ -n "$json" ]] && {
+  [[ "$(field "$json" screensaverImmediatelyAfterRelease)" == "2" ]] && ok "slider-click-settle: screensaver does not snap back after click release" \
+    || not_ok "slider-click-settle: screensaver does not snap back after click release (got $(field "$json" screensaverImmediatelyAfterRelease))"
+  [[ "$(field "$json" screensaverAfterHostConfirmation)" == "2" ]] && ok "slider-click-settle: screensaver remains at the confirmed target" \
+    || not_ok "slider-click-settle: screensaver remains at the confirmed target (got $(field "$json" screensaverAfterHostConfirmation))"
+  [[ "$(field "$json" lockImmediatelyAfterRelease)" == "2" ]] && ok "slider-click-settle: lockscreen does not snap back after click release" \
+    || not_ok "slider-click-settle: lockscreen does not snap back after click release (got $(field "$json" lockImmediatelyAfterRelease))"
+  [[ "$(field "$json" lockAfterHostConfirmation)" == "2" ]] && ok "slider-click-settle: lockscreen remains at the confirmed target" \
+    || not_ok "slider-click-settle: lockscreen remains at the confirmed target (got $(field "$json" lockAfterHostConfirmation))"
+  [[ "$(field "$json" screensaverAfterSameIndexExternalUpdate)" == "3" ]] && ok "slider-click-settle: same-index click does not mask a later host update" \
+    || not_ok "slider-click-settle: same-index click does not mask a later host update (got $(field "$json" screensaverAfterSameIndexExternalUpdate))"
+}
+run_common_checks slider-click-settle
+
+echo
 echo "== 3: conflict warning: stored lock <= screensaver -> visible, no write; a commit clears it =="
 setup_scenario_env conflict
 run_scenario conflict conflict

@@ -220,6 +220,7 @@ ShellRoot {
   function runScenario() {
     if (scenario === "render") return scenarioRender()
     if (scenario === "slider-commit") return scenarioSliderCommit()
+    if (scenario === "slider-click-settle") return scenarioSliderClickSettle()
     if (scenario === "conflict") return scenarioConflict()
     if (scenario === "keyboard") return scenarioKeyboard()
     if (scenario === "hero") return scenarioHero()
@@ -283,6 +284,64 @@ ShellRoot {
     patches.push({ step: "lock-clamp", patch: stubShell.mutateCalls[stubShell.mutateCalls.length - 1] })
 
     finish("", { patches: patches })
+  }
+
+  // A click release sets dragging false, emits released(), then resets
+  // liveValue from the externally confirmed value. The clicked target must
+  // stay visible while the host applies the write instead of snapping back.
+  function scenarioSliderClickSettle() {
+    var p = panel()
+    if (!p) { finish("no panel instance"); return }
+    var ss = p._debugScreensaverSlider
+    var lk = p._debugLockSlider
+    if (!ss || !lk) { finish("delay sliders unavailable"); return }
+
+    idleStub.screensaverTimeoutSeconds = 60
+    idleStub.lockTimeoutSeconds = 1800
+    stubShell.idleConfig = ({})
+    stubShell.mutateCalls = []
+
+    ss.dragging = true
+    ss.liveValue = 2
+    ss.dragging = false
+    ss.released(2)
+    ss.liveValue = ss.value
+    var ssImmediatelyAfterRelease = ss.liveValue
+    var ssPatch = stubShell.mutateCalls[stubShell.mutateCalls.length - 1]
+
+    after(80, function() {
+      idleStub.screensaverTimeoutSeconds = ssPatch.screensaver
+      after(20, function() {
+        var ssAfterHostConfirmation = ss.liveValue
+        stubShell.mutateCalls = []
+
+        lk.dragging = true
+        lk.liveValue = 2
+        lk.dragging = false
+        lk.released(2)
+        lk.liveValue = lk.value
+        var lockImmediatelyAfterRelease = lk.liveValue
+        var lockPatch = stubShell.mutateCalls[stubShell.mutateCalls.length - 1]
+
+        after(80, function() {
+          idleStub.lockTimeoutSeconds = lockPatch.lock
+          after(20, function() {
+            var lockAfterHostConfirmation = lk.liveValue
+            p.commitScreensaver(2)
+            idleStub.screensaverTimeoutSeconds = 300
+            after(20, function() {
+              finish("", {
+                screensaverImmediatelyAfterRelease: ssImmediatelyAfterRelease,
+                screensaverAfterHostConfirmation: ssAfterHostConfirmation,
+                lockImmediatelyAfterRelease: lockImmediatelyAfterRelease,
+                lockAfterHostConfirmation: lockAfterHostConfirmation,
+                screensaverAfterSameIndexExternalUpdate: ss.liveValue
+              })
+            })
+          })
+        })
+      })
+    })
   }
 
   // (3) conflict: lock <= screensaver on the host -> the warning Text is
