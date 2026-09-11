@@ -10,6 +10,12 @@ ln -s "$PLUGIN_DIR/test/mocks/omarchy-notification-send" "$OUT/omarchy-notificat
 ln -s "$PLUGIN_DIR/test/mocks/systemctl" "$OUT/systemctl"
 ln -s "$PLUGIN_DIR/test/mocks/omarchy-toggle" "$OUT/omarchy-toggle"
 ln -s "$PLUGIN_DIR/test/mocks/omarchy-toggle-enabled" "$OUT/omarchy-toggle-enabled"
+DISPLAY_ENV=()
+if [[ -n "${WAYLAND_DISPLAY:-}" ]]; then
+  wayland_socket="$WAYLAND_DISPLAY"
+  [[ "$wayland_socket" == /* ]] || wayland_socket="$XDG_RUNTIME_DIR/$wayland_socket"
+  DISPLAY_ENV=(GDK_BACKEND=wayland WAYLAND_DISPLAY="$wayland_socket")
+fi
 
 run_case() {
   local mode="$1" log="$OUT/$1.log" mocklog="$OUT/$1.mock"
@@ -18,7 +24,7 @@ run_case() {
   printf '{"version":1,"bar":{"layout":{"left":[{"id":"halmylyseas.ristretto","sleepAfterIdleLock":1,"dryRun":true}]}}}\n' > "$OUT/home/.config/omarchy/shell.json"
   chmod 700 "$OUT/home" "$OUT/runtime"
   printf 'PATH="%s:/usr/bin:/bin"\n' "$OUT" > "$OUT/home/.bash_profile"
-  HOST_BRIDGE_MODE="$bridge_mode" SCOPED_SUSPEND_MODE="$mode" SCOPED_SUSPEND_QS="$OUT/qs-host-bridge" \
+  env "${DISPLAY_ENV[@]}" HOST_BRIDGE_MODE="$bridge_mode" SCOPED_SUSPEND_MODE="$mode" SCOPED_SUSPEND_QS="$OUT/qs-host-bridge" \
     HOST_BRIDGE_LOG="$OUT/$1.host" RISTRETTO_MOCK_LOG="$mocklog" \
     RISTRETTO_PLUGIN_DIR="$PLUGIN_DIR" HOME="$OUT/home" XDG_RUNTIME_DIR="$OUT/runtime" \
     PATH="$OUT:/usr/bin:/bin" QT_QPA_PLATFORM=minimal \

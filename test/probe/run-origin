@@ -4,10 +4,16 @@ ROOT="$(cd -- "$(dirname -- "$0")/../.." && pwd)"
 OUT="$(mktemp -d /tmp/ristretto-origin-test.XXXXXX)"
 trap 'rm -rf "$OUT"' EXIT
 mkdir -m 700 "$OUT/runtime"
+DISPLAY_ENV=()
+if [[ -n "${WAYLAND_DISPLAY:-}" ]]; then
+  wayland_socket="$WAYLAND_DISPLAY"
+  [[ "$wayland_socket" == /* ]] || wayland_socket="$XDG_RUNTIME_DIR/$wayland_socket"
+  DISPLAY_ENV=(GDK_BACKEND=wayland WAYLAND_DISPLAY="$wayland_socket")
+fi
 failures=0
 for scenario in flow reconnect disable overflow timeout missing clock source; do
   log="$OUT/$scenario.log"
-  ORIGIN_SCENARIO="$scenario" RISTRETTO_PLUGIN_DIR="$ROOT" XDG_RUNTIME_DIR="$OUT/runtime" QT_QPA_PLATFORM=minimal \
+  env "${DISPLAY_ENV[@]}" ORIGIN_SCENARIO="$scenario" RISTRETTO_PLUGIN_DIR="$ROOT" XDG_RUNTIME_DIR="$OUT/runtime" QT_QPA_PLATFORM=minimal \
     timeout --kill-after=2 10 qs -p "$ROOT/test/probe/origin-probe.qml" --no-color > "$log" 2>&1
   code=$?
   if [[ "$code" != 0 ]] || grep -Eq 'TypeError|ReferenceError|ERROR:' "$log"; then

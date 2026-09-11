@@ -35,7 +35,7 @@ to an exact commit and is tracked separately from the version.
 - Diagnostics for countdown cancellation and failed final status checks.
 - Coverage for scoped settings, multiple widgets, malformed and deleted
   configuration, origin races, process cleanup, and real journal transport.
-- Contributor instructions in `AGENTS.md` and this changelog.
+- Contributor instructions in `CONTRIBUTING.md` and this changelog.
 
 ## 1.1.0 — 2026-08-30
 

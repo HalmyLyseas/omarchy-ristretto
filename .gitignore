@@ -1,5 +1,4 @@
-# Guards against a stray local project-notes directory (kept outside this
-# repo) ending up inside this tree -- not an active location here.
+# Local notes and automation scratch must never ship with the plugin.
 /exchange/
 
 # editor / OS scratch

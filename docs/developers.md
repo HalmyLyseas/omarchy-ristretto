@@ -1,8 +1,8 @@
 # Developer notes
 
 The distilled why and how of this plugin, for a contributor starting from
-a bare clone. The README covers using it; `AGENTS.md` carries the project
-rules; `docs/threat-model.md` carries the asset/boundary model.
+a bare clone. The README covers using it; `CONTRIBUTING.md` carries the
+project rules; `docs/threat-model.md` carries the asset/boundary model.
 
 ## Architecture
 
@@ -166,6 +166,11 @@ compositor idle state cannot be scripted).
   `PATH`: `mkdir -p /tmp/qmlroot && ln -sfn /usr/share/omarchy/shell
   /tmp/qmlroot/qs && /usr/lib/qt6/bin/qmllint -I /tmp/qmlroot -I
   /usr/share/omarchy/shell Panel.qml`.
+- Probe runners that replace `XDG_RUNTIME_DIR` must preserve an inherited
+  Wayland socket as an absolute `WAYLAND_DISPLAY` path and select
+  `GDK_BACKEND=wayland`. Quickshell initializes GTK even with
+  `QT_QPA_PLATFORM=minimal`; hiding the compositor socket makes otherwise
+  headless-safe probes exit before QML loads.
 - Liveness is the IPC probe, not the plugin list:
   `omarchy-shell halmylyseas.ristretto __probe__` → `Function not found.`
   means loaded; `Target not found.` means not.
