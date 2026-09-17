@@ -38,7 +38,7 @@ From the bar, without editing JSON by hand, a user can set and see:
 
 ## Environment
 
-Compatibility targets: Omarchy 4.0.1 through 4.0.3, Quickshell 0.3.1. Relevant paths:
+Compatibility targets: Omarchy 4.0.1 through 4.0.4, Quickshell 0.3.1. Relevant paths:
 
 ```
 /usr/share/omarchy/shell/plugins/     # first-party plugin source -- read only
