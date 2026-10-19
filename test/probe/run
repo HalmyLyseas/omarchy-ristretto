@@ -328,6 +328,28 @@ check_log_contains "$OUT_DIR/unlock-mid-countdown.log" "unlocked -- countdown ca
 run_common_checks unlock-mid-countdown
 
 echo
+echo "== 8b: unlock before spawn clears the announcement; later lock cannot arm =="
+setup_scenario_env unlock-before-spawn yes
+run_scenario unlock-before-spawn
+json="$(get_json unlock-before-spawn)"
+report_json_line unlock-before-spawn "$json"
+[[ -n "$json" ]] && {
+  [[ "$(field "$json" idleLockPending)" == "false" ]] && ok "unlock-before-spawn: latch stays clear" \
+    || not_ok "unlock-before-spawn: latch stays clear (got $(field "$json" idleLockPending))"
+  n="$(mock_call_count "$OUT_DIR/unlock-before-spawn.mock.log" "ARGV: systemctl suspend")"
+  [[ "$n" == "0" ]] && ok "unlock-before-spawn: systemctl never called" \
+    || not_ok "unlock-before-spawn: systemctl never called (got $n)"
+  n2="$(mock_call_count "$OUT_DIR/unlock-before-spawn.mock.log" "ARGV: omarchy-notification-send")"
+  [[ "$n2" == "0" ]] && ok "unlock-before-spawn: dry-run fire never reached" \
+    || not_ok "unlock-before-spawn: dry-run fire never reached (got $n2 notification call(s))"
+}
+check_log_contains "$OUT_DIR/unlock-before-spawn.log" "locked, but not by idle -- not arming" \
+  "unlock-before-spawn: later lock treated as manual"
+check_log_not_contains "$OUT_DIR/unlock-before-spawn.log" "armed: suspend" \
+  "unlock-before-spawn: stale spawn never armed"
+run_common_checks unlock-before-spawn
+
+echo
 echo "== 9: sleep delay change mid-countdown -> cancelled =="
 setup_scenario_env delay-change-mid-countdown yes
 run_scenario delay-change-mid-countdown
@@ -337,9 +359,48 @@ report_json_line delay-change-mid-countdown "$json"
   [[ "$(field "$json" suspendTimerRunning)" == "false" ]] && ok "delay-change-mid-countdown: countdown stopped" \
     || not_ok "delay-change-mid-countdown: countdown stopped"
 }
-check_log_contains "$OUT_DIR/delay-change-mid-countdown.log" "sleep delay changed while counting down -- countdown cancelled" \
+check_log_contains "$OUT_DIR/delay-change-mid-countdown.log" "countdown cancelled: sleep delay changed" \
   "delay-change-mid-countdown: cancellation logged"
 run_common_checks delay-change-mid-countdown
+
+echo
+echo "== 9b: dry run turned off mid-countdown -> cancelled, systemctl never called =="
+setup_scenario_env dryrun-change-mid-countdown yes
+run_scenario dryrun-change-mid-countdown
+json="$(get_json dryrun-change-mid-countdown)"
+report_json_line dryrun-change-mid-countdown "$json"
+[[ -n "$json" ]] && {
+  [[ "$(field "$json" suspendTimerRunning)" == "false" ]] && ok "dryrun-change-mid-countdown: countdown stopped" \
+    || not_ok "dryrun-change-mid-countdown: countdown stopped"
+  [[ "$(field "$json" idleLockPending)" == "false" ]] && ok "dryrun-change-mid-countdown: idle latch cleared" \
+    || not_ok "dryrun-change-mid-countdown: idle latch cleared (got $(field "$json" idleLockPending))"
+  n="$(mock_call_count "$OUT_DIR/dryrun-change-mid-countdown.mock.log" "ARGV: systemctl suspend")"
+  [[ "$n" == "0" ]] && ok "dryrun-change-mid-countdown: systemctl never called" \
+    || not_ok "dryrun-change-mid-countdown: systemctl never called (got $n)"
+}
+check_log_contains "$OUT_DIR/dryrun-change-mid-countdown.log" "countdown cancelled: dry run changed" \
+  "dryrun-change-mid-countdown: cancellation logged"
+run_common_checks dryrun-change-mid-countdown
+
+echo
+echo "== 9c: process-start after secure edge still arms the verified idle lock =="
+setup_scenario_env spawn-after-secure yes
+run_scenario spawn-after-secure
+json="$(get_json spawn-after-secure)"
+report_json_line spawn-after-secure "$json"
+[[ -n "$json" ]] && {
+  n="$(mock_call_count "$OUT_DIR/spawn-after-secure.mock.log" "ARGV: systemctl suspend")"
+  [[ "$n" == "0" ]] && ok "spawn-after-secure: systemctl never called (dry run)" \
+    || not_ok "spawn-after-secure: systemctl never called (got $n)"
+  n2="$(mock_call_count "$OUT_DIR/spawn-after-secure.mock.log" "ARGV: omarchy-notification-send")"
+  [[ "${n2:-0}" -ge 1 ]] && ok "spawn-after-secure: countdown reached its dry-run fire" \
+    || not_ok "spawn-after-secure: countdown reached its dry-run fire (got $n2 notification call(s))"
+}
+check_log_contains "$OUT_DIR/spawn-after-secure.log" "idle lock spawn confirmed" \
+  "spawn-after-secure: late spawn was accepted"
+check_log_contains "$OUT_DIR/spawn-after-secure.log" "armed: suspend in 1s (dry run)" \
+  "spawn-after-secure: late spawn still armed"
+run_common_checks spawn-after-secure
 
 echo
 echo "== 10: stay-awake during settle -> cancelled (A4); stay-awake at fire -> ignored =="

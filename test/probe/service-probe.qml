@@ -327,7 +327,10 @@ ShellRoot {
     if (scenario === "never-secure") return scenarioNeverSecure()
     if (scenario === "never-secure-late") return scenarioNeverSecureLate()
     if (scenario === "unlock-mid-countdown") return scenarioUnlockMidCountdown()
+    if (scenario === "unlock-before-spawn") return scenarioUnlockBeforeSpawn()
     if (scenario === "delay-change-mid-countdown") return scenarioDelayChangeMidCountdown()
+    if (scenario === "dryrun-change-mid-countdown") return scenarioDryRunChangeMidCountdown()
+    if (scenario === "spawn-after-secure") return scenarioSpawnAfterSecure()
     if (scenario === "stayawake-settle-and-fire") return scenarioStayAwakeSettleAndFire()
     if (scenario === "stayawake-clears-latch") return scenarioStayAwakeClearsLatch()
     if (scenario === "idle-service-lost") return scenarioIdleServiceLost()
@@ -473,6 +476,30 @@ ShellRoot {
     })
   }
 
+  // Unlock between the announcement and the spawn must clear the announcement
+  // too, so a delayed process-start cannot latch a later, unrelated lock.
+  function scenarioUnlockBeforeSpawn() {
+    originStub.isIdle = true
+    setConfig({ sleepAfterIdleLock: 1, dryRun: true })
+    after(50, function () {
+      fireLockSystem("idle-timeout")
+      lockStub.pendingSessionLock = true
+      lockStub.locked = true
+      after(50, function () {
+        probeRoot.unlock()
+        fireProcessStartLock()
+        after(50, function () {
+          lockStub.pendingSessionLock = true
+          lockStub.locked = true
+          after(150, function () {
+            lockStub.pendingSessionLock = false
+            after(2600, finishNow)
+          })
+        })
+      })
+    })
+  }
+
   function scenarioDelayChangeMidCountdown() {
     setConfig({ sleepAfterIdleLock: 5 })
     after(50, function () {
@@ -480,6 +507,40 @@ ShellRoot {
         after(1300, function () {
           setConfig({ sleepAfterIdleLock: 8 })
           after(300, finishNow)
+        })
+      })
+    })
+  }
+
+  // A dry-run countdown must not become a real suspend when dryRun is turned
+  // off after the timer is already armed. The same safety rule applies to
+  // the announcement/settle window before the timer starts.
+  function scenarioDryRunChangeMidCountdown() {
+    setConfig({ sleepAfterIdleLock: 5, dryRun: true })
+    after(50, function () {
+      driveSecureIdleLock(function () {
+        after(1300, function () {
+          setConfig({ sleepAfterIdleLock: 5, dryRun: false })
+          after(500, finishNow)
+        })
+      })
+    })
+  }
+
+  // Journal delivery may land process-start after the secure edge it caused.
+  // The spawn itself is still proof of an idle-driven lock and must arm.
+  function scenarioSpawnAfterSecure() {
+    originStub.isIdle = true
+    setConfig({ sleepAfterIdleLock: 1, dryRun: true })
+    after(50, function () {
+      fireLockSystem("idle-timeout")
+      lockStub.pendingSessionLock = true
+      lockStub.locked = true
+      after(200, function () {
+        lockStub.pendingSessionLock = false
+        after(100, function () {
+          fireProcessStartLock()
+          after(2600, finishNow)
         })
       })
     })

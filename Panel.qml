@@ -65,11 +65,14 @@ Panel {
   // Legacy writes time out; scoped writes follow HostBridge verification.
   property int pendingScreensaverIndex: -1
   property int pendingLockIndex: -1
+  property int pendingSleepIndex: -1
   property int sliderIntentTimeoutMs: 5000
   readonly property int displayedScreensaverIndex: pendingScreensaverIndex >= 0
     ? pendingScreensaverIndex : screensaverIndex
   readonly property int displayedLockIndex: pendingLockIndex >= 0
     ? pendingLockIndex : lockIndex
+  readonly property int displayedSleepIndex: pendingSleepIndex >= 0
+    ? pendingSleepIndex : sleepIndex
 
   onScreensaverIndexChanged: if (pendingScreensaverIndex === screensaverIndex) {
     pendingScreensaverIndex = -1
@@ -78,6 +81,10 @@ Panel {
   onLockIndexChanged: if (pendingLockIndex === lockIndex) {
     pendingLockIndex = -1
     lockIntentTimeout.stop()
+  }
+  onSleepIndexChanged: if (pendingSleepIndex === sleepIndex) {
+    pendingSleepIndex = -1
+    sleepIntentTimeout.stop()
   }
   onBridgeChanged: {
     pendingScreensaverIndex = -1
@@ -97,6 +104,12 @@ Panel {
     interval: root.sliderIntentTimeoutMs
     repeat: false
     onTriggered: root.pendingLockIndex = -1
+  }
+  Timer {
+    id: sleepIntentTimeout
+    interval: root.sliderIntentTimeoutMs
+    repeat: false
+    onTriggered: root.pendingSleepIndex = -1
   }
 
   Connections {
@@ -257,12 +270,24 @@ Panel {
   // merge onto current settings first or every sibling key is dropped --
   // dryRun included, the one guard between a bug and a real suspend.
   function commitSleep(seconds) {
+    var targetIndex = Model.sleepIndexFor(seconds)
+    root.pendingSleepIndex = targetIndex === root.sleepIndex ? -1 : targetIndex
+    if (root.pendingSleepIndex >= 0) sleepIntentTimeout.restart()
+    else sleepIntentTimeout.stop()
     var host = root.shell
-    if (!host || typeof host.updateEntryInline !== "function") return
+    if (!host || typeof host.updateEntryInline !== "function") {
+      root.pendingSleepIndex = -1
+      sleepIntentTimeout.stop()
+      return
+    }
     var current = root.settings
     if (root.scopedHost) {
       current = root.ristrettoService ? root.ristrettoService.settingsEntry : null
-      if (!current || typeof current !== "object" || Array.isArray(current)) return
+      if (!current || typeof current !== "object" || Array.isArray(current)) {
+        root.pendingSleepIndex = -1
+        sleepIntentTimeout.stop()
+        return
+      }
       root.ristrettoService.cancelScopedCountdown("sleep delay change requested")
     }
     host.updateEntryInline(root.moduleName,
@@ -554,7 +579,7 @@ Panel {
           Text {
             id: sleepValue
             text: Model.sleepLabel(Model.SLEEP_STOPS[
-              sleepSlider.dragging ? Math.round(sleepSlider.liveValue) : root.sleepIndex])
+              sleepSlider.dragging ? Math.round(sleepSlider.liveValue) : root.displayedSleepIndex])
             textFormat: Text.PlainText
             color: root.dim
             font.family: root.fontFamily
@@ -584,7 +609,7 @@ Panel {
             step: 1
             integer: true
             tickCount: Model.SLEEP_STOPS.length
-            value: root.sleepIndex
+            value: root.displayedSleepIndex
             onReleased: function(v) { root.commitSleep(Model.SLEEP_STOPS[Math.round(v)]) }
           }
 

@@ -55,8 +55,9 @@ state) for the probe harnesses below; production code never reads them.
 - **The suspend timer's interval is assigned at arm time, never bound.** A
   live binding on a running QML Timer restarts it on any config change —
   and a mid-countdown edit to "never" (-1) would clamp into a one-second
-  fuse. A delay change, an unlock, or stay-awake turning on all cancel a
-  pending countdown outright; so does the host losing `omarchy.idle` or
+  fuse. A delay change, a dry-run change, an unlock, or stay-awake turning
+  on all cancel a pending countdown outright; so does the host losing
+  `omarchy.idle` or
   `omarchy.lock` mid-countdown (the shell can recreate either singleton).
 - **Lock must sit strictly above screensaver.** At equal values the host
   derives both stage delays as zero and fires the screensaver and the lock

@@ -477,7 +477,17 @@ ShellRoot {
     stubShell.updateEntryInlineCalls = []
     p.commitSleep(300)
     var call = stubShell.updateEntryInlineCalls[stubShell.updateEntryInlineCalls.length - 1]
-    finish("", { call: call })
+    var immediatelyAfterCommit = p.displayedSleepIndex
+    after(20, function() {
+      // The host confirms the write; the pending intent should clear only
+      // once the confirmed value is the one the user picked.
+      barWidget.settings = ({ sleepAfterIdleLock: 300, dryRun: true })
+      after(20, function() {
+        finish("", { call: call,
+                     sleepImmediatelyAfterCommit: immediatelyAfterCommit,
+                     sleepAfterHostConfirmation: p.displayedSleepIndex })
+      })
+    })
   }
 
   // (7) lifecycle: serviceFor returns null at first paint -> the panel

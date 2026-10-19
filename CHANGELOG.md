@@ -7,6 +7,14 @@ to an exact commit and is tracked separately from the version.
 
 ### Fixed
 
+- Cancel a pending legacy countdown when `dryRun` changes, so turning the
+  test guard off cannot turn an armed dry run into a real suspend.
+- Clear the announcement and latch on unlock and on delay changes, so a
+  delayed lock spawn cannot inherit a cancelled idle lock.
+- Accept a lock spawn that the journal reports after its secure edge, instead
+  of losing a real idle-driven lock to log ordering.
+- Keep the sleep delay slider on a clicked target while the host confirms the
+  value, matching the screensaver and lock sliders.
 - Update the Omarchy and Quickshell compatibility contract for Omarchy 4.0.5
   and Quickshell 0.3.2, including exact-tag CI validation.
 - Qualify the QML palette singleton as `Commons.Color` for Qt 6.12, preventing

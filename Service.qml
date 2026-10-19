@@ -60,9 +60,27 @@ Item {
     root._countdownToken = ""
     root._preflightPending = false
     root.idleLockPending = false
+    root.idleLockAnnounced = false
+    root.originIdleAtAnnounce = false
     originSettle.stop()
     suspendTimer.stop()
     latchExpiry.stop()
+  }
+  // Legacy hosts have no HostBridge token to invalidate. Drop the
+  // announcement/latch with the timer so a late process-start or secure edge
+  // cannot resurrect a countdown the user just cancelled.
+  function cancelLegacyCountdown(reason) {
+    if (root.scopedHost) return false
+    var wasPending = originSettle.running || suspendTimer.running
+      || root.idleLockPending || root.idleLockAnnounced
+    originSettle.stop()
+    suspendTimer.stop()
+    latchExpiry.stop()
+    root.idleLockPending = false
+    root.idleLockAnnounced = false
+    root.originIdleAtAnnounce = false
+    if (wasPending) log("countdown cancelled: " + reason)
+    return wasPending
   }
   function armScopedCountdown() {
     if (!root.scopedHost || !root.hostBridge || !root.hostBridge.eligible || !root.armable) return
@@ -201,6 +219,10 @@ Item {
         root.idleLockPending = true
         latchExpiry.restart()
         log("idle lock spawn confirmed (" + idleEvent + ")")
+        // Journal delivery can trail the secure edge it caused. The edge
+        // handler already ran and saw no latch, so re-check here instead of
+        // losing a real idle-driven lock to log ordering.
+        if (root.secureLocked) maybeArmForSecureLock()
       } else {
         root.originIdleAtAnnounce = false
         log("idle lock announced but no spawn (" + idleEvent + ") -- not latching")
@@ -245,7 +267,11 @@ Item {
                                                         : "unlocked -- latch cleared")
       originSettle.stop()
       suspendTimer.stop()
+      latchExpiry.stop()
       root.idleLockPending = false
+      // An announcement whose process-start never arrived must not survive
+      // the unlock and latch a later, unrelated lock process.
+      root.idleLockAnnounced = false
       root.originIdleAtAnnounce = false
     }
   }
@@ -1092,13 +1118,11 @@ Item {
   // from the one that just changed may not have re-evaluated yet inside
   // this handler, so `armable` could still print the previous value.
   onSleepSecondsChanged: {
+    // A delay change while a countdown (or its pre-spawn announcement) is
+    // pending means "not that countdown": cancel rather than guess. The next
+    // idle lock arms with the new value.
     if (root.scopedHost) root.cancelScopedCountdown("sleep delay changed")
-    // A delay change while a countdown runs means "not that countdown":
-    // cancel rather than guess. The next idle lock arms with the new value.
-    if (suspendTimer.running) {
-      suspendTimer.stop()
-      log("sleep delay changed while counting down -- countdown cancelled")
-    }
+    else root.cancelLegacyCountdown("sleep delay changed")
     if (root._sleepNormalized.clamped)
       log("sleepAfterIdleLock exceeded the cap -- clamped to " + root._sleepNormalized.seconds + "s")
     if (root._sleepNormalized.rejected)
@@ -1106,7 +1130,11 @@ Item {
     log("sleep delay is now " + (sleepSeconds > 0 ? sleepSeconds + "s" : "never"))
   }
   onDryRunChanged: {
+    // A legacy countdown does not re-read dryRun until it fires. Changing the
+    // guard mid-flight must cancel, or turning dry run OFF would convert a
+    // test countdown into a real suspend at the last second.
     if (root.scopedHost) root.cancelScopedCountdown("dry run changed")
+    else root.cancelLegacyCountdown("dry run changed")
     log("dry run is now " + dryRun)
   }
   onScopedHostChanged: {

@@ -22,7 +22,8 @@ menu, or `omarchy lock` — never leads to suspend.
   moving either slider nudges the other when they would collide.
 - **Sleep after idle lock** — how long after an idle-driven lock the machine
   suspends: 1, 2, 3, 5 or 10 minutes, or never. A pending countdown is
-  cancelled by unlocking, by changing the delay, or by switching stay awake
+  cancelled by unlocking, by changing the delay or dry-run setting, or by
+  switching stay awake
   on — anything that says "not now" means not now.
 - **Screensaver switch** — Omarchy's native `screensaver-off` flag, which has
   a CLI (`omarchy toggle screensaver`) but no other UI.

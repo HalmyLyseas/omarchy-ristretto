@@ -326,6 +326,10 @@ report_json_line commit-sleep-merge "$json"
     || not_ok "commit-sleep-merge: sleepAfterIdleLock == 300 (got: $(field "$json" call.settings.sleepAfterIdleLock))"
   [[ "$(field "$json" call.settings.dryRun)" == "true" ]] && ok "commit-sleep-merge: sibling dryRun survives the write" \
     || not_ok "commit-sleep-merge: sibling dryRun survives (got: $(field "$json" call.settings.dryRun))"
+  [[ "$(field "$json" sleepImmediatelyAfterCommit)" == "3" ]] && ok "commit-sleep-merge: sleep slider holds its target while the host catches up" \
+    || not_ok "commit-sleep-merge: sleep slider holds its target (got: $(field "$json" sleepImmediatelyAfterCommit))"
+  [[ "$(field "$json" sleepAfterHostConfirmation)" == "3" ]] && ok "commit-sleep-merge: sleep slider stays at the confirmed target" \
+    || not_ok "commit-sleep-merge: sleep slider stays at the confirmed target (got: $(field "$json" sleepAfterHostConfirmation))"
 }
 run_common_checks commit-sleep-merge
 
