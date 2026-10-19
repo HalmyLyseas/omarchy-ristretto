@@ -6,6 +6,14 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+SHELL_TREE="${RISTRETTO_SHELL_TREE:-/usr/share/omarchy/shell}"
+export RISTRETTO_SHELL_TREE="$SHELL_TREE"
+PLUGIN_VALIDATOR="${OMARCHY_PLUGIN_VALIDATOR:-${RISTRETTO_PLUGIN_VALIDATOR:-$(command -v omarchy-plugin-validate || true)}}"
+[[ -d "$SHELL_TREE" ]] || { echo "test/ci-local: shell tree not found: $SHELL_TREE" >&2; exit 1; }
+[[ -n "$PLUGIN_VALIDATOR" && -x "$PLUGIN_VALIDATOR" ]] || {
+  echo "test/ci-local: omarchy-plugin-validate not found (set OMARCHY_PLUGIN_VALIDATOR or RISTRETTO_PLUGIN_VALIDATOR)" >&2
+  exit 1
+}
 
 no_cage=0
 for arg in "$@"; do
@@ -23,7 +31,7 @@ run_step() {
 }
 
 run_step bash "$SCRIPT_DIR/lint-qml"
-run_step omarchy plugin validate "$PLUGIN_DIR"
+run_step "$PLUGIN_VALIDATOR" "$PLUGIN_DIR"
 run_step node --test "$SCRIPT_DIR"/*.test.js
 run_step node "$SCRIPT_DIR/host-contract.mjs"
 run_step python3 "$SCRIPT_DIR/idle-writer.test.py"

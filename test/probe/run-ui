@@ -20,9 +20,10 @@ if ! command -v qs >/dev/null 2>&1; then
   exit 0
 fi
 
+SHELL_TREE="${RISTRETTO_SHELL_TREE:-/usr/share/omarchy/shell}"
 QMLROOT="$OUT_DIR/qmlroot"
 mkdir -p "$QMLROOT"
-ln -sfn /usr/share/omarchy/shell "$QMLROOT/qs"
+ln -sfn "$SHELL_TREE" "$QMLROOT/qs"
 
 json_line() { grep -o 'PROBE_RESULT .*' "$1" | tail -n1 | sed 's/^PROBE_RESULT //'; }
 
@@ -139,7 +140,7 @@ run_scenario() {
   local mocklog="$OUT_DIR/$label.mock.log"
   : > "$mocklog"
   env RISTRETTO_MOCK_LOG="$mocklog" RISTRETTO_PLUGIN_DIR="$PLUGIN_DIR" RISTRETTO_UI_SCENARIO="$ui_scenario" \
-    QML_IMPORT_PATH="$QMLROOT" \
+    RISTRETTO_SHELL_TREE="$SHELL_TREE" QML_IMPORT_PATH="$QMLROOT" \
     HOME="$home" PATH="/usr/bin:/bin" \
     timeout 30 qs -n -p "$PLUGIN_DIR/test/probe/ui-probe.qml" > "$log" 2>&1
   echo "$?" > "$OUT_DIR/$label.exit"

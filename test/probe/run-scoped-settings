@@ -2,17 +2,18 @@
 set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+SHELL_TREE="${RISTRETTO_SHELL_TREE:-/usr/share/omarchy/shell}"
 QMLROOT="$(mktemp -d)"
 trap 'rm -rf "$QMLROOT"' EXIT
 mkdir -p "$QMLROOT"
-ln -s /usr/share/omarchy/shell "$QMLROOT/qs"
+ln -s "$SHELL_TREE" "$QMLROOT/qs"
 mkdir -p "$QMLROOT/home/.config/omarchy" "$QMLROOT/bin"
 printf '{"version":1,"bar":{"layout":{"right":[{"id":"halmylyseas.ristretto","sleepAfterIdleLock":60,"dryRun":true,"sibling":"kept"}]}}}\n' > "$QMLROOT/home/.config/omarchy/shell.json"
 ln -s "$PLUGIN_DIR/test/mocks/omarchy-toggle" "$QMLROOT/bin/omarchy-toggle"
 ln -s "$PLUGIN_DIR/test/mocks/omarchy-toggle-enabled" "$QMLROOT/bin/omarchy-toggle-enabled"
 printf 'PATH="%s:/usr/bin:/bin"\n' "$QMLROOT/bin" > "$QMLROOT/home/.bash_profile"
 LOG="$QMLROOT/result.log"
-env RISTRETTO_PLUGIN_DIR="$PLUGIN_DIR" QML_IMPORT_PATH="$QMLROOT" HOME="$QMLROOT/home" PATH="$QMLROOT/bin:/usr/bin:/bin" \
+env RISTRETTO_PLUGIN_DIR="$PLUGIN_DIR" RISTRETTO_SHELL_TREE="$SHELL_TREE" QML_IMPORT_PATH="$QMLROOT" HOME="$QMLROOT/home" PATH="$QMLROOT/bin:/usr/bin:/bin" \
   timeout 25 qs -n -p "$PLUGIN_DIR/test/probe/scoped-settings-probe.qml" >"$LOG" 2>&1
 code=$?
 cat "$LOG"

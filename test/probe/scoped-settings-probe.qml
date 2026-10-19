@@ -5,6 +5,7 @@ import Quickshell.Io
 ShellRoot {
   id: root
   property string pluginDir: Quickshell.env("RISTRETTO_PLUGIN_DIR")
+  property string shellTree: Quickshell.env("RISTRETTO_SHELL_TREE") || "/usr/share/omarchy/shell"
   property var checks: []
   property bool done: false
   property var service: null
@@ -26,7 +27,7 @@ ShellRoot {
     Qt.quit()
   }
   function initApi() {
-      var component = Qt.createComponent("/usr/share/omarchy/shell/services/PluginShellApi.qml")
+      var component = Qt.createComponent(root.shellTree + "/services/PluginShellApi.qml")
       var item = component.createObject(root, {pluginId: "halmylyseas.ristretto"})
       root.shellApi = item
       item.barConfig = ({layout: {left: [], center: [], right: [root.entry]}})

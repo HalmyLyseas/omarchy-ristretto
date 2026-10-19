@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Shapes
 import qs.Commons
+import qs.Commons as Commons
 
 // The ristretto mark: a tapered demitasse with two steam curls, drawn as a
 // Shape so it takes whatever foreground colour its host hands it -- the
@@ -9,7 +10,7 @@ Item {
   id: root
 
   property real iconSize: Style.font.icon
-  property color color: Color.foreground
+  property color color: Commons.Color.foreground
 
   // The steam is a state, not decoration: the bar and the panel hero show
   // it only while stay-awake keeps the coffee hot.

@@ -3,6 +3,17 @@
 Notable user-facing changes, newest first. Marketplace verification applies
 to an exact commit and is tracked separately from the version.
 
+## 1.2.2 — 2026-10-19
+
+### Fixed
+
+- Update the Omarchy and Quickshell compatibility contract for Omarchy 4.0.5
+  and Quickshell 0.3.2, including exact-tag CI validation.
+- Qualify the QML palette singleton as `Commons.Color` for Qt 6.12, preventing
+  undefined color and icon bindings.
+- Prefer Qt 6 `qmllint` and let local validation target a selected Omarchy
+  checkout through `RISTRETTO_SHELL_TREE` and the validator override.
+
 ## 1.2.1 — 2026-09-12
 
 ### Fixed

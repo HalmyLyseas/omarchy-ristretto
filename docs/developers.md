@@ -169,9 +169,9 @@ compositor idle state cannot be scripted).
   edit tool — they are silently stripped. Write such files with a
   Unicode-safe writer.
 - `qmllint` needs an import root containing a `qs` entry and is not on
-  `PATH`: `mkdir -p /tmp/qmlroot && ln -sfn /usr/share/omarchy/shell
+  `PATH`: `mkdir -p /tmp/qmlroot && ln -sfn "$RISTRETTO_SHELL_TREE"
   /tmp/qmlroot/qs && /usr/lib/qt6/bin/qmllint -I /tmp/qmlroot -I
-  /usr/share/omarchy/shell Panel.qml`.
+  "$RISTRETTO_SHELL_TREE" Panel.qml`.
 - Probe runners that replace `XDG_RUNTIME_DIR` must preserve an inherited
   Wayland socket as an absolute `WAYLAND_DISPLAY` path and select
   `GDK_BACKEND=wayland`. Quickshell initializes GTK even with
@@ -194,16 +194,18 @@ compositor idle state cannot be scripted).
 
 `bash test/all` runs Node logic, host contracts, source hygiene, Python
 writer tests, and every real QML probe. `test/ci-local [--no-cage]` also
-runs lint and plugin validation, using headless cage by default. CI installs
-Python alongside Quickshell, Node, and cage, and extracts the host shell
-without installing the desktop. Tests use temporary config and mocked
-mutating commands. Live lock/suspend tests require explicit authorization.
+runs lint and plugin validation, using headless cage by default. CI pins the
+exact Omarchy `v4.0.5` source and sets `RISTRETTO_SHELL_TREE` /
+`RISTRETTO_PLUGIN_VALIDATOR` to that checkout; local validation defaults to
+the installed shell. Tests use temporary config and mocked mutating
+commands. Live lock/suspend tests require explicit authorization.
 
 The original service and UI runners cover legacy bindings. Additional
 `test/probe/run-*` runners exercise actual adapters, failed starts, output
 limits, watchdogs, callbacks, origin transport, and scoped host behavior.
-Host contracts inspect the installed source and CLI wording; they do not
-establish runtime authorization merely because a method name exists.
+Host contracts inspect the selected source and CLI wording; they do not
+establish runtime authorization merely because a method name exists. Set
+`RISTRETTO_SHELL_TREE` to validate an exact checkout.
 
 Local and remote CI share `bash test/lint-qml`, which resolves absolute source
 paths and fails on nonzero linter exits. All QML files, including untracked
@@ -225,7 +227,7 @@ new version once the plugin is listed:
 2. For the final release, remove the prerelease suffix, merge the tested commit
    to `master`, and push `master`.
 3. Open a **Plugin verification** issue on
-   `HANCORE-linux/omarchy-plugin-marketplace` (template
+   `omacom/omarchy-plugin-marketplace` (template
    `verify-plugin.yml`), choose *newer upstream commit*, and give the
    plugin ID, the repository root URL, and the full 40-character SHA of
    the pushed HEAD.

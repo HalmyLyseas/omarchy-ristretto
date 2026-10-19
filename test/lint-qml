@@ -2,19 +2,23 @@
 set -uo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd)"
 PLUGIN_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd)"
-LINT_BIN="${RISTRETTO_QMLLINT_BIN:-$(command -v qmllint || command -v /usr/lib/qt6/bin/qmllint || true)}"
+SHELL_TREE="${RISTRETTO_SHELL_TREE:-/usr/share/omarchy/shell}"
+LINT_BIN="${RISTRETTO_QMLLINT_BIN:-/usr/lib/qt6/bin/qmllint}"
+if [[ ! -x "$LINT_BIN" ]]; then
+  LINT_BIN="$(command -v qmllint || true)"
+fi
 if [[ -z "$LINT_BIN" ]]; then
   echo 'qmllint not found' >&2
   exit 1
 fi
 IMPORT_ROOT="$(mktemp -d)"
 trap 'rm -rf "$IMPORT_ROOT"' EXIT
-ln -s /usr/share/omarchy/shell "$IMPORT_ROOT/qs"
+ln -s "$SHELL_TREE" "$IMPORT_ROOT/qs"
 status=0
 count=0
 while IFS= read -r -d '' file; do
   count=$((count + 1))
-  out="$("$LINT_BIN" -I "$IMPORT_ROOT" -I /usr/share/omarchy/shell "$PLUGIN_DIR/$file" 2>&1)"
+  out="$("$LINT_BIN" -I "$IMPORT_ROOT" -I "$SHELL_TREE" "$PLUGIN_DIR/$file" 2>&1)"
   code=$?
   if [[ "$code" -ne 0 ]] || grep -q ':[0-9]*:[0-9]*: Error' <<<"$out"; then
     echo "qmllint failed for $file (exit $code)"

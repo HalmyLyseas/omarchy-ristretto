@@ -136,9 +136,9 @@ if (qsVersion.error || qsVersion.status !== 0) {
   console.log("SKIP: qs --version unavailable, cannot pin Quickshell logging behavior");
 } else {
   checks++;
-  if (!/0\.3\.1/.test(`${qsVersion.stdout}${qsVersion.stderr}`))
-    failures.push(`qs --version: expected Quickshell 0.3.1, got ${JSON.stringify(qsVersion.stdout || qsVersion.stderr)}`);
-  else console.log("ok - qs reports Quickshell 0.3.1");
+  if (!/0\.3\.[12]/.test(`${qsVersion.stdout}${qsVersion.stderr}`))
+    failures.push(`qs --version: expected Quickshell 0.3.1 or 0.3.2, got ${JSON.stringify(qsVersion.stdout || qsVersion.stderr)}`);
+  else console.log("ok - qs reports a supported Quickshell 0.3.x");
   const qsHelp = spawnSync("qs", ["log", "--help"], { encoding: "utf8" });
   const help = `${qsHelp.stdout}${qsHelp.stderr}`;
   checks++;

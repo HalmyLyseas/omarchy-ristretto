@@ -9,6 +9,7 @@ ShellRoot {
   id: probeRoot
 
   property string pluginDir: Quickshell.env("RISTRETTO_PLUGIN_DIR")
+  property string shellTree: Quickshell.env("RISTRETTO_SHELL_TREE") || "/usr/share/omarchy/shell"
   property string scenario: Quickshell.env("RISTRETTO_SCENARIO") || ""
   property bool useFacade: scenario.indexOf("facade-") === 0
   property bool done: false
@@ -717,7 +718,7 @@ ShellRoot {
 
   Component.onCompleted: {
     if (probeRoot.useFacade) {
-      facadeLoader.setSource("file:///usr/share/omarchy/shell/services/PluginShellApi.qml",
+      facadeLoader.setSource("file://" + probeRoot.shellTree + "/services/PluginShellApi.qml",
                              { pluginId: "halmylyseas.ristretto" })
       facadeLoader.active = true
     }
