@@ -40,13 +40,12 @@ stay in sync with their CLI equivalents in both directions.
 
 Ristretto uses the installed Omarchy shell, Quickshell, and Python 3.
 
-- **Omarchy 4.0.1 through 4.0.5, Quickshell 0.3.1–0.3.2.** The scoped host
-  path is live-tested on Omarchy 4.0.5; legacy host behavior is covered by
-  contracts and mocked probes for the earlier versions. Older hosts expose
-  live service bindings. On Omarchy 4.0.3 and later, the plugin watches its
-  own entry in `shell.json` and uses IPC plus timestamped host logs for idle
-  and lock observations. Unavailable observations disable suspend safely.
-  Newer host versions require compatibility validation before use.
+- **Omarchy 4.5.0 and 4.0.5 (current and previous release), Quickshell 0.3.2.**
+  Both scoped-host paths are live-tested. The plugin watches its own entry in
+  `shell.json` and uses IPC plus timestamped host logs for idle and lock
+  observations; unavailable observations disable suspend safely. Earlier 4.0.x
+  hosts retain their legacy paths but are outside the tested contract. A newer
+  release than 4.5.0 requires compatibility validation before use.
 - **Python 3** for scoped-host delay edits. The helper updates only the
   shared idle timing pair in `~/.config/omarchy/shell.json`; no root is needed.
 - **User journal access** for scoped idle observation. Start the shell through

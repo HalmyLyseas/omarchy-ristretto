@@ -196,10 +196,10 @@ compositor idle state cannot be scripted).
 `bash test/all` runs Node logic, host contracts, source hygiene, Python
 writer tests, and every real QML probe. `test/ci-local [--no-cage]` also
 runs lint and plugin validation, using headless cage by default. CI pins the
-exact Omarchy `v4.0.5` source and sets `RISTRETTO_SHELL_TREE` /
-`RISTRETTO_PLUGIN_VALIDATOR` to that checkout; local validation defaults to
-the installed shell. Tests use temporary config and mocked mutating
-commands. Live lock/suspend tests require explicit authorization.
+exact Omarchy `v4.0.5` and `v4.5.0` sources in a matrix and sets
+`RISTRETTO_SHELL_TREE` / `RISTRETTO_PLUGIN_VALIDATOR` to that checkout; local
+validation defaults to the installed shell. Tests use temporary config and
+mocked mutating commands. Live lock/suspend tests require explicit authorization.
 
 The original service and UI runners cover legacy bindings. Additional
 `test/probe/run-*` runners exercise actual adapters, failed starts, output

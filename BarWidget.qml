@@ -68,7 +68,7 @@ BarWidget {
     bar: root.bar
     slotSize: Style.bar.statusSlot
     // The mark is a Shape, so it follows the button's colour states the same
-    // way a glyph would. BarIconButton force-sizes it to its icon canvas.
+    // way a glyph would. Omarchy 4.5 normalizes custom icons to its icon size.
     iconComponent: Component {
       RistrettoIcon {
         color: button.active && button.useActiveColor ? button.activeColor : button.foreground
