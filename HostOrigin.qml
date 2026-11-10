@@ -13,12 +13,12 @@ Item {
   property int hostPid: Quickshell.processId
   property string hostInstance: Quickshell.instanceId
   property int barrierTimeoutMs: 3000
-  property int heartbeatMs: 1000
+  property int heartbeatMs: 10000
   property int reconnectMs: 500
   property int maxReconnectMs: 10000
   property int lineCap: 4096
   property int windowCap: 131072
-  property int replayCap: 8388608
+  property int replayCap: 33554432
   property int clockToleranceMs: 100
 
   readonly property bool available: root.active && root._ready && root._started && !root._stopping

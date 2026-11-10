@@ -40,9 +40,11 @@ state) for the probe harnesses below; production code never reads them.
   are ambiguous and rejected. Sampling at log delivery would be wrong:
   the lock screen itself can reset the compositor idle notifier.
 - **A fresh log marker establishes continuity.** The follower replays the
-  log only until its own fresh nonce, discarding older events. Heartbeats,
-  bounded replay/output, clock checks, and reconnect generations invalidate
-  incomplete evidence. The journal reader selects the current boot and own PID,
+  log only until its own fresh nonce, discarding older events. A 10s
+  heartbeat keeps journal volume low (~0.7 MB of text per day), and a 32 MiB
+  replay cap covers roughly 45 days at that rate; on-demand barriers, not the
+  heartbeat, control suspend. Bounded replay/output, clock checks, and reconnect
+  generations invalidate incomplete evidence. The journal reader selects the current boot and own PID,
   replays with `--no-tail`, and strips stored ANSI colors after checking byte
   limits. Excessive replay or delayed journal delivery fails unavailable.
   Ordered same-thread QML output and journal stream ordering carry the markers.
@@ -138,7 +140,7 @@ per-arm generation counter, synthesizes exit code 127 for it.
 | `notify` | `omarchy-notification-send` (`dryRun` only) | 5s |
 | Scoped idle | `qs ipc --pid PID call -- idle status/enable/disable` | 2s |
 | Preflight | `qs ipc --pid PID call -- idle/lock status` | 2.5s per call |
-| Origin | `journalctl --user --boot --follow --no-tail --output=cat _PID=PID` | 3s marker deadline |
+| Origin | `journalctl --user --boot --follow --no-tail --output=cat _PID=PID` | 10s heartbeat, 3s marker deadline, 32 MiB replay cap |
 | Delay writer | `/usr/bin/python3 tools/update-idle.py` with fixed named arguments | 2.5s |
 
 Output is bounded to `outputCapChars` (4096) total across stdout+stderr,
@@ -250,8 +252,8 @@ any release commit.
 
 Host log wording and Quickshell logging behavior are version-dependent.
 Malformed, stale, ambiguous, or missing evidence prevents arming. Detailed
-logs can grow large enough that replay exceeds the bound and suspend stays
-unavailable. The log reader processes the own host process only; it does
+logs can grow large enough that replay exceeds the 32 MiB bound and suspend
+stays unavailable. The log reader processes the own host process only; it does
 not retain authentication details from lock status. A manual request racing
 an already spawned idle lock cannot be attributed perfectly from these
 observations. See `docs/threat-model.md` for boundaries and limitations.

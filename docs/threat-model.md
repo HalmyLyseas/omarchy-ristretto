@@ -29,7 +29,7 @@ No command changes the installed host tree or requires root.
 | Boundary | Guard |
 |---|---|
 | Scoped plugin API | Own writes use the scoped API; a singleton watcher reads only the saved own entry into service state. No privileged clone, full-bar identity, parent traversal, or upstream host modification. |
-| Idle/lock observation | Own-process PID-pinned current-boot user journal, fresh nonce after replay, periodic barriers, bounded phase deadlines, and reconnect generations. Only required event fields are parsed. |
+| Idle/lock observation | Own-process PID-pinned current-boot user journal, fresh nonce after replay, a 10s liveness heartbeat, a 32 MiB replay cap, bounded phase deadlines, and reconnect generations. Only required event fields are parsed. |
 | Raw input | Wall and monotonic timestamps reconstruct idle before the source announcement. Equal-millisecond ambiguity, clock discontinuity, or absent history reject origin. |
 | Suspend dispatch | Secure idle token, fresh barrier, loaded/enabled idle status, secure nonpending lock status, second barrier, and synchronous settings/cancellation checks. |
 | Shared config | Owned regular version-1 JSON, size limit, symlink rejection, same-directory temporary file, atomic replace, sidecar flock, final identity/content comparison, one retry, and subsequent host-state verification. |
@@ -46,7 +46,8 @@ No command changes the installed host tree or requires root.
   investigation before extending support.
 - The journal follower replays to a fresh marker using `--no-tail`. A large
   journal, unavailable user journal, rate limiting, or delayed delivery can
-  prevent observation and leave suspend unavailable.
+  prevent observation and leave suspend unavailable; the 32 MiB replay cap
+  bounds that exposure.
 - A manual request racing an already spawned idle lock cannot always be
   distinguished from that lock's own request. Raw activity and phase checks
   narrow the window but do not provide a host-issued causal identifier.

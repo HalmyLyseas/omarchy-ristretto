@@ -18,6 +18,9 @@ to an exact commit and is tracked separately from the version.
 - Note Omarchy 4.5's custom bar-icon normalization in the widget source.
 - Keep automatically discovered agent instructions out of the installed
   plugin payload.
+- Lower the origin liveness heartbeat to 10 s and raise the replay cap to
+  32 MiB. Marker text drops by about 90%, the bounded replay window extends
+  to roughly 45 days, and on-demand barriers still control suspend.
 
 ## 1.2.2 — 2026-10-19
 
