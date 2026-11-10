@@ -5,6 +5,12 @@ to an exact commit and is tracked separately from the version.
 
 ## Unreleased
 
+### Fixed
+
+- Keep idle-origin observation available across a system wall-clock step
+  (for example an NTP correction) instead of tearing down the journal reader
+  and disabling suspend for the session.
+
 ### Changed
 
 - Target Omarchy 4.5.0 and 4.0.5 in CI and the documented compatibility

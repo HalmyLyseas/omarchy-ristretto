@@ -46,6 +46,11 @@ state) for the probe harnesses below; production code never reads them.
   replays with `--no-tail`, and strips stored ANSI colors after checking byte
   limits. Excessive replay or delayed journal delivery fails unavailable.
   Ordered same-thread QML output and journal stream ordering carry the markers.
+- **A wall-clock step rebases evidence, not the reader.** NTP can step
+  `CLOCK_REALTIME` while the monotonic clock keeps running. A detected step
+  clears the sample history and invalidates the origin state, cancelling any
+  countdown, but the journal stream stays available and sampling resumes from
+  the new clock instead of disabling suspend for the rest of the session.
 - **Suspend uses two fresh barriers.** A saved token must survive a marker,
   fresh idle and lock IPC status, and a second marker after those replies.
   Idle must be loaded and enabled; lock must be secure, session-locked, and

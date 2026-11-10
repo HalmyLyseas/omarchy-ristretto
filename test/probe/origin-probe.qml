@@ -72,9 +72,14 @@ ShellRoot {
       transport.requestBarrier(function(ok) { callbacks += 1; check("reconnect callback cancelled", !ok) })
       transport.fail("synthetic connection failure")
     } else if (scenario === "clock") {
+      var beforeClock = invalidations
+      var pidBeforeClock = transport.childPid
       transport._lastWall = Date.now() - 100000
       rawIdleStub.isIdle = true
-      check("clock discontinuity invalidates", transport.lastError === "clock discontinuity" && !transport.available)
+      check("clock step invalidates evidence", invalidations > beforeClock)
+      check("clock step keeps transport available", transport.available)
+      check("clock step rebases history", transport.rawHistory.length === 1 && transport.rawHistory[0].idle === true)
+      check("clock step keeps the reader", transport.childPid === pidBeforeClock)
       transport.active = false
       cleanupTimer.start()
     } else if (scenario === "source") {

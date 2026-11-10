@@ -54,12 +54,16 @@ Item {
   function clockSample() {
     var wall = Date.now()
     var mono = monotonic.elapsedMs()
-    if (root._lastWall && Math.abs((wall - root._lastWall) - (mono - root._lastMono)) > root.clockToleranceMs) {
-      root.fail("clock discontinuity")
-      return null
-    }
+    var stepped = root._lastWall && Math.abs((wall - root._lastWall) - (mono - root._lastMono)) > root.clockToleranceMs
     root._lastWall = wall
     root._lastMono = mono
+    if (stepped) {
+      // A wall-clock step breaks journal correlation, not the transport:
+      // drop old evidence and keep sampling instead of restarting the reader.
+      root._history = []
+      console.log("ristretto origin observation rebased: clock discontinuity")
+      root.invalidated("clock discontinuity")
+    }
     return { wallMs: wall, monoMs: mono }
   }
 
