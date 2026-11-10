@@ -3,6 +3,14 @@
 Notable user-facing changes, newest first. Marketplace verification applies
 to an exact commit and is tracked separately from the version.
 
+## 1.2.4 — 2026-11-11
+
+### Changed
+
+- Align the README manual-lock promise with the accepted origin ambiguity:
+  a manual lock racing an already-announced idle lock can still arm the
+  countdown. Add a regression for that exact window.
+
 ## 1.2.3 — 2026-11-10
 
 ### Fixed
