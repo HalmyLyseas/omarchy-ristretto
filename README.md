@@ -11,7 +11,11 @@ logind's `IdleAction` never fires because nothing publishes idle state to it.
 Ristretto adds it at the only workable layer, the shell: a delay that starts
 counting when the session locks *because you went idle*, and suspends the
 machine when it runs out. A lock you trigger yourself — a keybinding, the
-menu, or `omarchy lock` — never leads to suspend.
+menu, or `omarchy lock` — does not by itself arm the suspend countdown. A
+manual lock that races an already-announced idle lock is an acknowledged
+ambiguity: the two requests are indistinguishable at the shell layer, so the
+idle countdown may still arm in that narrow window. See
+[docs/threat-model.md](docs/threat-model.md).
 
 ## What it does
 

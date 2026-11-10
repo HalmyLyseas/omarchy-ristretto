@@ -256,4 +256,5 @@ logs can grow large enough that replay exceeds the 32 MiB bound and suspend
 stays unavailable. The log reader processes the own host process only; it does
 not retain authentication details from lock status. A manual request racing
 an already spawned idle lock cannot be attributed perfectly from these
-observations. See `docs/threat-model.md` for boundaries and limitations.
+observations; README and the threat model state that the countdown may still
+arm in that window. See `docs/threat-model.md` for boundaries and limitations.

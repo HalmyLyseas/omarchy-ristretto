@@ -51,6 +51,9 @@ No command changes the installed host tree or requires root.
 - A manual request racing an already spawned idle lock cannot always be
   distinguished from that lock's own request. Raw activity and phase checks
   narrow the window but do not provide a host-issued causal identifier.
+  README's manual-lock statement is scoped accordingly: a self-triggered lock
+  does not arm by itself, but a manual request in this window can be adopted
+  as the idle lock's request.
 - The last status/log observations and dispatch are not an atomic host
   transaction. Events generated after the final marker can race the final
   synchronous dispatch. Every observed unlock or cancellation rejects the

@@ -80,6 +80,19 @@ test('delayed raw reset after announcement cannot change the recorded origin', (
   assert.equal(s.candidate.originIdle, true)
 })
 
+test('manual lock after an idle announcement is indistinguishable from the idle helper', () => {
+  // Accepted ambiguity: a manual request in this window is adopted as the
+  // announced idle lock's request; README and the threat model say so.
+  let s = Model.recordIdle(Model.createState(), { wallMs: 0, monoMs: 0, idle: true }, cfg)
+  s = Model.applyEvent(s, { type: 'idle-announcement', reason: 'lock-timeout', wallMs: 100 }, cfg)
+  s = Model.applyEvent(s, { type: 'idle-process-start', wallMs: 110 }, cfg)
+  s = Model.recordIdle(s, { wallMs: 120, monoMs: 120, idle: false }, cfg)
+  s = Model.applyEvent(s, { type: 'lock-request', wallMs: 130 }, cfg)
+  s = Model.applyEvent(s, { type: 'secure', value: true, wallMs: 140 }, cfg)
+  assert.equal(s.candidate.originIdle, true)
+  assert.equal(Model.isEligible(s), true)
+})
+
 test('secure alone never qualifies; post-secure process exit preserves token', () => {
   let s = Model.recordIdle(Model.createState(), { wallMs: 0, monoMs: 0, idle: true }, cfg)
   s = Model.applyEvent(s, { type: 'session-locked', value: true, wallMs: 121 }, cfg)
