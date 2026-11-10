@@ -3,7 +3,7 @@
 Notable user-facing changes, newest first. Marketplace verification applies
 to an exact commit and is tracked separately from the version.
 
-## Unreleased
+## 1.2.3 — 2026-11-10
 
 ### Fixed
 
@@ -16,6 +16,8 @@ to an exact commit and is tracked separately from the version.
 - Target Omarchy 4.5.0 and 4.0.5 in CI and the documented compatibility
   contract; earlier 4.0.x paths remain outside the tested contract.
 - Note Omarchy 4.5's custom bar-icon normalization in the widget source.
+- Keep automatically discovered agent instructions out of the installed
+  plugin payload.
 
 ## 1.2.2 — 2026-10-19
 
